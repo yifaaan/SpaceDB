@@ -1,0 +1,30 @@
+# CMake and compiler output
+/build/
+/CMakeUserPresets.json
+/compile_commands.json
+
+# vcpkg manifest output
+/vcpkg_installed/
+
+# Visual Studio and IDE state
+/.vs/
+*.suo
+*.user
+*.VC.db
+
+# Generated logs and crash artifacts
+*.log
+*.dmp
+
+# Rust reference build output
+/sqldb-rs/target/
+
+# Local tooling and operating-system files
+.DS_Store
+Thumbs.db
+
+Docs/
+.github/
+build/
+sqldb-rs
+AGENTS.md

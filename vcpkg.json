@@ -1,0 +1,6 @@
+{
+  "name": "spacedb",
+  "version-string": "0.1.0",
+  "description": "A C++23 learning-oriented SQL database.",
+  "dependencies": []
+}
