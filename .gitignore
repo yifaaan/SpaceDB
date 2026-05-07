@@ -23,8 +23,8 @@
 .DS_Store
 Thumbs.db
 
-Docs/
 .github/
 build/
 sqldb-rs
 AGENTS.md
+Docs/

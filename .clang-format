@@ -3,7 +3,7 @@ BasedOnStyle: Microsoft
 IndentWidth: 4
 TabWidth: 4
 UseTab: Never
-ColumnLimit: 120
+ColumnLimit: 150
 BreakBeforeBraces: Allman
 NamespaceIndentation: All
 AccessModifierOffset: -4
