@@ -28,3 +28,4 @@ build/
 sqldb-rs
 AGENTS.md
 Docs/
+.vscode/

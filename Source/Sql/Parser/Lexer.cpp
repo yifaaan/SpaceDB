@@ -95,6 +95,7 @@ namespace spacedb
             return ScanIdentifier();
         }
 
-        return absl::InvalidArgumentError(absl::StrCat("lexer: unexpected character '", Peek(), "'"));
+        return absl::InvalidArgumentError(
+            absl::StrCat("lexer: unexpected character '", std::string(1, Peek()), "'"));
     }
 } // namespace spacedb
