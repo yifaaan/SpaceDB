@@ -54,4 +54,51 @@ namespace spacedb
         REQUIRE_FALSE(result.ok());
         CHECK(result.status().code() == absl::StatusCode::kInvalidArgument);
     }
+
+    TEST_CASE("lexer scans integer and floating point numbers")
+    {
+        Lexer lexer("0 42 3.14 10.");
+
+        for (const std::string expected : {"0", "42", "3.14", "10."})
+        {
+            auto token = lexer.Next();
+
+            REQUIRE(token.ok());
+            CHECK(token->kind == TokenKind::NUMBER);
+            CHECK(std::get<std::string>(token->payload) == expected);
+        }
+
+        auto eof = lexer.Next();
+
+        REQUIRE(eof.ok());
+        CHECK(eof->kind == TokenKind::END_OF_INPUT);
+    }
+
+    TEST_CASE("lexer stops a number before an identifier")
+    {
+        Lexer lexer("12abc");
+
+        auto number = lexer.Next();
+        REQUIRE(number.ok());
+        CHECK(number->kind == TokenKind::NUMBER);
+        CHECK(std::get<std::string>(number->payload) == "12");
+
+        auto identifier = lexer.Next();
+        REQUIRE(identifier.ok());
+        CHECK(identifier->kind == TokenKind::IDENTIFIER);
+        CHECK(std::get<std::string>(identifier->payload) == "abc");
+    }
+
+    TEST_CASE("lexer rejects a second decimal point")
+    {
+        Lexer lexer("1.2.3");
+
+        auto number = lexer.Next();
+        REQUIRE(number.ok());
+        CHECK(std::get<std::string>(number->payload) == "1.2");
+
+        auto invalid = lexer.Next();
+        REQUIRE_FALSE(invalid.ok());
+        CHECK(invalid.status().code() == absl::StatusCode::kInvalidArgument);
+    }
 } // namespace spacedb

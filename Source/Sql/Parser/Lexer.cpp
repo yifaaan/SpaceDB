@@ -50,9 +50,14 @@ namespace spacedb
         }
     }
 
+    bool Lexer::IsDigit(char value)
+    {
+        return value >= '0' && value <= '9';
+    }
+
     Token Lexer::ScanIdentifier()
     {
-        std::size_t begin = offset_;
+        size_t begin = offset_;
 
         while (offset_ < input_.size() && IsIdentifierPart(input_[offset_]))
         {
@@ -78,6 +83,33 @@ namespace spacedb
         };
     }
 
+    Token Lexer::ScanNumber()
+    {
+        size_t begin = offset_;
+
+        while (!AtEnd() && IsDigit(Peek()))
+        {
+            Advance();
+        }
+
+        if (!AtEnd() && Peek() == '.')
+        {
+            Advance();
+            while (!AtEnd() && IsDigit(Peek()))
+            {
+                Advance();
+            }
+        }
+
+        return Token{
+            .kind = TokenKind::NUMBER,
+            .payload =
+                TokenPayload{
+                    std::string(input_.substr(begin, offset_ - begin)),
+                },
+        };
+    }
+
     absl::StatusOr<Token> Lexer::Next()
     {
         SkipWhitespace();
@@ -90,12 +122,16 @@ namespace spacedb
             };
         }
 
+        if (IsDigit(Peek()))
+        {
+            return ScanNumber();
+        }
+
         if (IsIdentifierStart(Peek()))
         {
             return ScanIdentifier();
         }
 
-        return absl::InvalidArgumentError(
-            absl::StrCat("lexer: unexpected character '", std::string(1, Peek()), "'"));
+        return absl::InvalidArgumentError(absl::StrCat("lexer: unexpected character '", std::string(1, Peek()), "'"));
     }
 } // namespace spacedb

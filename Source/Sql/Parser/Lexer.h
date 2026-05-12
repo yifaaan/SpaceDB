@@ -24,10 +24,12 @@ namespace spacedb
         void SkipWhitespace();
 
         Token ScanIdentifier();
+        Token ScanNumber();
 
         static bool IsWhitespace(char value);
         static bool IsIdentifierStart(char value);
         static bool IsIdentifierPart(char value);
+        static bool IsDigit(char value);
 
         std::string_view input_;
         std::size_t offset_ = 0;
