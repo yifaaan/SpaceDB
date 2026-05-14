@@ -2,6 +2,7 @@
 
 #include <string>
 
+#include "Sql/Parser/Token.h"
 #include "absl/status/status.h"
 #include "absl/strings/ascii.h"
 #include "absl/strings/str_cat.h"
@@ -110,6 +111,25 @@ namespace spacedb
         };
     }
 
+    absl::StatusOr<Token> Lexer::ScanString()
+    {
+        // Next() 只有在当前字符为单引号时才调用本函数。
+        // 先消费起始单引号
+        Advance();
+
+        std::string value;
+        while (!AtEnd())
+        {
+            char current = Advance();
+            if (current == '\'')
+            {
+                return Token{.kind = TokenKind::STRING, .payload = TokenPayload{std::move(value)}};
+            }
+            value.push_back(current);
+        }
+        return absl::InvalidArgumentError("lexer: unterminated string literal");
+    }
+
     absl::StatusOr<Token> Lexer::Next()
     {
         SkipWhitespace();
@@ -120,6 +140,11 @@ namespace spacedb
                 .kind = TokenKind::END_OF_INPUT,
                 .payload = std::monostate{},
             };
+        }
+
+        if (Peek() == '\'')
+        {
+            return ScanString();
         }
 
         if (IsDigit(Peek()))

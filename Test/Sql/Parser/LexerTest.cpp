@@ -101,4 +101,45 @@ namespace spacedb
         REQUIRE_FALSE(invalid.ok());
         CHECK(invalid.status().code() == absl::StatusCode::kInvalidArgument);
     }
+
+    TEST_CASE("lexer scans string literals")
+    {
+        Lexer lexer("'Hello SQL' '' 'with spaces'");
+
+        for (const std::string expected : {"Hello SQL", "", "with spaces"})
+        {
+            auto token = lexer.Next();
+
+            REQUIRE(token.ok());
+            CHECK(token->kind == TokenKind::STRING);
+            CHECK(std::get<std::string>(token->payload) == expected);
+        }
+
+        auto eof = lexer.Next();
+
+        REQUIRE(eof.ok());
+        CHECK(eof->kind == TokenKind::END_OF_INPUT);
+    }
+
+    TEST_CASE("lexer preserves string literal contents")
+    {
+        Lexer lexer("'MiXeD_123'");
+
+        auto token = lexer.Next();
+
+        REQUIRE(token.ok());
+        CHECK(token->kind == TokenKind::STRING);
+        CHECK(std::get<std::string>(token->payload) == "MiXeD_123");
+    }
+
+    TEST_CASE("lexer rejects unterminated string literal")
+    {
+        Lexer lexer("'unfinished");
+
+        auto result = lexer.Next();
+
+        REQUIRE_FALSE(result.ok());
+        CHECK(result.status().code() == absl::StatusCode::kInvalidArgument);
+        CHECK(result.status().message() == "lexer: unterminated string literal");
+    }
 } // namespace spacedb
