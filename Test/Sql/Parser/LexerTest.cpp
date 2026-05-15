@@ -142,4 +142,45 @@ namespace spacedb
         CHECK(result.status().code() == absl::StatusCode::kInvalidArgument);
         CHECK(result.status().message() == "lexer: unterminated string literal");
     }
+
+    TEST_CASE("lexer scans supported symbols")
+    {
+        Lexer lexer("(),;*+-/");
+
+        constexpr TokenKind expected[] = {
+            TokenKind::OPEN_PAREN, TokenKind::CLOSE_PAREN, TokenKind::COMMA, TokenKind::SEMICOLON,
+            TokenKind::ASTERISK,   TokenKind::PLUS,        TokenKind::MINUS, TokenKind::SLASH,
+        };
+
+        for (const TokenKind expected_kind : expected)
+        {
+            auto token = lexer.Next();
+
+            REQUIRE(token.ok());
+            CHECK(token->kind == expected_kind);
+            CHECK(std::holds_alternative<std::monostate>(token->payload));
+        }
+
+        auto eof = lexer.Next();
+
+        REQUIRE(eof.ok());
+        CHECK(eof->kind == TokenKind::END_OF_INPUT);
+    }
+
+    TEST_CASE("lexer scans a basic select statement")
+    {
+        Lexer lexer("select * from tbl;");
+
+        constexpr TokenKind expected[] = {
+            TokenKind::KEYWORD, TokenKind::ASTERISK, TokenKind::KEYWORD, TokenKind::IDENTIFIER, TokenKind::SEMICOLON, TokenKind::END_OF_INPUT,
+        };
+
+        for (const TokenKind expected_kind : expected)
+        {
+            auto token = lexer.Next();
+
+            REQUIRE(token.ok());
+            CHECK(token->kind == expected_kind);
+        }
+    }
 } // namespace spacedb

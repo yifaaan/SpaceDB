@@ -26,6 +26,7 @@ namespace spacedb
         Token ScanIdentifier();
         Token ScanNumber();
         absl::StatusOr<Token> ScanString();
+        absl::StatusOr<Token> ScanSymbol();
 
         static bool IsWhitespace(char value);
         static bool IsIdentifierStart(char value);

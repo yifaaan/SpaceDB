@@ -130,6 +130,48 @@ namespace spacedb
         return absl::InvalidArgumentError("lexer: unterminated string literal");
     }
 
+    absl::StatusOr<Token> Lexer::ScanSymbol()
+    {
+        TokenKind kind;
+
+        switch (Peek())
+        {
+        case '(':
+            kind = TokenKind::OPEN_PAREN;
+            break;
+        case ')':
+            kind = TokenKind::CLOSE_PAREN;
+            break;
+        case ',':
+            kind = TokenKind::COMMA;
+            break;
+        case ';':
+            kind = TokenKind::SEMICOLON;
+            break;
+        case '*':
+            kind = TokenKind::ASTERISK;
+            break;
+        case '+':
+            kind = TokenKind::PLUS;
+            break;
+        case '-':
+            kind = TokenKind::MINUS;
+            break;
+        case '/':
+            kind = TokenKind::SLASH;
+            break;
+        default:
+            return absl::InvalidArgumentError(absl::StrCat("lexer: unexpected character '", std::string(1, Peek()), "'"));
+        }
+
+        Advance();
+
+        return Token{
+            .kind = kind,
+            .payload = std::monostate{},
+        };
+    }
+
     absl::StatusOr<Token> Lexer::Next()
     {
         SkipWhitespace();
@@ -157,6 +199,6 @@ namespace spacedb
             return ScanIdentifier();
         }
 
-        return absl::InvalidArgumentError(absl::StrCat("lexer: unexpected character '", std::string(1, Peek()), "'"));
+        return ScanSymbol();
     }
 } // namespace spacedb
