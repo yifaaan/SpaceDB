@@ -183,4 +183,68 @@ namespace spacedb
             CHECK(token->kind == expected_kind);
         }
     }
+
+    TEST_CASE("lexer tokenizes create table statement")
+    {
+        Lexer lexer("CREATE TABLE users "
+                    "(id INT PRIMARY KEY, "
+                    "name VARCHAR DEFAULT 'guest', "
+                    "age INT);");
+
+        constexpr TokenKind expected[] = {
+            TokenKind::KEYWORD, TokenKind::KEYWORD,     TokenKind::IDENTIFIER, TokenKind::OPEN_PAREN,   TokenKind::IDENTIFIER,
+            TokenKind::KEYWORD, TokenKind::KEYWORD,     TokenKind::KEYWORD,    TokenKind::COMMA,        TokenKind::IDENTIFIER,
+            TokenKind::KEYWORD, TokenKind::KEYWORD,     TokenKind::STRING,     TokenKind::COMMA,        TokenKind::IDENTIFIER,
+            TokenKind::KEYWORD, TokenKind::CLOSE_PAREN, TokenKind::SEMICOLON,  TokenKind::END_OF_INPUT,
+        };
+
+        for (std::size_t index = 0; index < sizeof(expected) / sizeof(expected[0]); ++index)
+        {
+            auto token = lexer.Next();
+
+            REQUIRE(token.ok());
+            CHECK(token->kind == expected[index]);
+
+            if (index == 2)
+            {
+                CHECK(std::get<std::string>(token->payload) == "users");
+            }
+
+            if (index == 12)
+            {
+                CHECK(std::get<std::string>(token->payload) == "guest");
+            }
+        }
+    }
+
+    TEST_CASE("lexer tokenizes insert statement")
+    {
+        Lexer lexer("INSERT INTO users "
+                    "(id, name) "
+                    "VALUES (1, 'alice');");
+
+        constexpr TokenKind expected[] = {
+            TokenKind::KEYWORD,    TokenKind::KEYWORD,     TokenKind::IDENTIFIER, TokenKind::OPEN_PAREN,   TokenKind::IDENTIFIER, TokenKind::COMMA,
+            TokenKind::IDENTIFIER, TokenKind::CLOSE_PAREN, TokenKind::KEYWORD,    TokenKind::OPEN_PAREN,   TokenKind::NUMBER,     TokenKind::COMMA,
+            TokenKind::STRING,     TokenKind::CLOSE_PAREN, TokenKind::SEMICOLON,  TokenKind::END_OF_INPUT,
+        };
+
+        for (std::size_t index = 0; index < sizeof(expected) / sizeof(expected[0]); ++index)
+        {
+            auto token = lexer.Next();
+
+            REQUIRE(token.ok());
+            CHECK(token->kind == expected[index]);
+
+            if (index == 10)
+            {
+                CHECK(std::get<std::string>(token->payload) == "1");
+            }
+
+            if (index == 12)
+            {
+                CHECK(std::get<std::string>(token->payload) == "alice");
+            }
+        }
+    }
 } // namespace spacedb
