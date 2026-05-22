@@ -18,6 +18,7 @@ option(SPACEDB_BUILD_TESTS "Build SpaceDB tests when test sources are present" O
 add_library(SpaceDB STATIC
     Source/Sql/Parser/Token.cpp
     Source/Sql/Parser/Lexer.cpp
+    Source/Sql/Parser/Parser.cpp
 )
 add_library(SpaceDB::SpaceDB ALIAS SpaceDB)
 
