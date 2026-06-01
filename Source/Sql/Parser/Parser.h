@@ -20,6 +20,14 @@ namespace spacedb
         absl::StatusOr<Statement> Parse();
 
     private:
+        absl::StatusOr<Statement> ParseStatement();
+
+        absl::StatusOr<Statement> ParseSelect();
+        absl::StatusOr<Statement> ParseCreateTable();
+
+        absl::StatusOr<Column> ParseColumn();
+        absl::StatusOr<DataType> ParseDataType();
+
         absl::Status EnsureLookahead();
 
         absl::StatusOr<const Token*> Peek();

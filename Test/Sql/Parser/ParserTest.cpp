@@ -47,4 +47,70 @@ namespace spacedb
         REQUIRE_FALSE(result.ok());
         CHECK(result.status().code() == absl::StatusCode::kInvalidArgument);
     }
+
+    TEST_CASE("parser rejects empty input")
+    {
+        Parser parser("");
+
+        auto result = parser.Parse();
+
+        REQUIRE_FALSE(result.ok());
+        CHECK(result.status().code() == absl::StatusCode::kInvalidArgument);
+    }
+
+    TEST_CASE("parser rejects select without asterisk")
+    {
+        Parser parser("SELECT FROM users;");
+
+        auto result = parser.Parse();
+
+        REQUIRE_FALSE(result.ok());
+        CHECK(result.status().code() == absl::StatusCode::kInvalidArgument);
+    }
+
+    TEST_CASE("parser parses single-column create table")
+    {
+        Parser parser("CREATE TABLE users (id INT);");
+
+        auto result = parser.Parse();
+
+        REQUIRE(result.ok());
+        REQUIRE(std::holds_alternative<CreateTableStatement>(*result));
+
+        const auto& statement = std::get<CreateTableStatement>(*result);
+
+        CHECK(statement.name == "users");
+        REQUIRE(statement.columns.size() == 1);
+
+        const auto& column = statement.columns.front();
+
+        CHECK(column.name == "id");
+        CHECK(column.dataType == DataType::INTEGER);
+        CHECK_FALSE(column.nullable.has_value());
+        CHECK_FALSE(column.defaultValue.has_value());
+    }
+
+    TEST_CASE("parser accepts data type aliases")
+    {
+        Parser parser("CREATE TABLE flags (enabled BOOL);");
+
+        auto result = parser.Parse();
+
+        REQUIRE(result.ok());
+
+        const auto& statement = std::get<CreateTableStatement>(*result);
+
+        REQUIRE(statement.columns.size() == 1);
+        CHECK(statement.columns.front().dataType == DataType::BOOLEAN);
+    }
+
+    TEST_CASE("parser rejects multiple columns for now")
+    {
+        Parser parser("CREATE TABLE users (id INT, name STRING);");
+
+        auto result = parser.Parse();
+
+        REQUIRE_FALSE(result.ok());
+        CHECK(result.status().code() == absl::StatusCode::kInvalidArgument);
+    }
 } // namespace spacedb
