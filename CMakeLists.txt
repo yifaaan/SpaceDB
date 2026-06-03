@@ -39,6 +39,10 @@ target_include_directories(SpaceDB
         $<INSTALL_INTERFACE:include>
 )
 
+if(MSVC)
+    target_compile_options(SpaceDB PUBLIC /utf-8)
+endif()
+
 include(CTest)
 
 if(BUILD_TESTING AND SPACEDB_BUILD_TESTS)

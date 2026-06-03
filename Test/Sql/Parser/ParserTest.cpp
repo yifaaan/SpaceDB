@@ -104,9 +104,34 @@ namespace spacedb
         CHECK(statement.columns.front().dataType == DataType::BOOLEAN);
     }
 
-    TEST_CASE("parser rejects multiple columns for now")
+    TEST_CASE("parser parses multiple columns")
     {
-        Parser parser("CREATE TABLE users (id INT, name STRING);");
+        Parser parser("CREATE TABLE users "
+                      "(id INT, name STRING, active BOOL);");
+
+        auto result = parser.Parse();
+
+        REQUIRE(result.ok());
+        REQUIRE(std::holds_alternative<CreateTableStatement>(*result));
+
+        const auto& statement = std::get<CreateTableStatement>(*result);
+
+        CHECK(statement.name == "users");
+        REQUIRE(statement.columns.size() == 3);
+
+        CHECK(statement.columns[0].name == "id");
+        CHECK(statement.columns[0].dataType == DataType::INTEGER);
+
+        CHECK(statement.columns[1].name == "name");
+        CHECK(statement.columns[1].dataType == DataType::STRING);
+
+        CHECK(statement.columns[2].name == "active");
+        CHECK(statement.columns[2].dataType == DataType::BOOLEAN);
+    }
+
+    TEST_CASE("parser rejects trailing comma in columns")
+    {
+        Parser parser("CREATE TABLE users (id INT,);");
 
         auto result = parser.Parse();
 

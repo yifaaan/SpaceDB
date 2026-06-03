@@ -213,22 +213,43 @@ namespace spacedb
             return status;
         }
 
-        auto column = ParseColumn();
-
-        if (!column.ok())
+        std::vector<Column> columns;
+        while (true)
         {
-            return column.status();
+            auto column = ParseColumn();
+
+            if (!column.ok())
+            {
+                return column.status();
+            }
+
+            columns.push_back(std::move(column.value()));
+
+            auto next = Peek();
+
+            if (!next.ok())
+            {
+                return next.status();
+            }
+
+            if ((*next)->kind != TokenKind::COMMA)
+            {
+                break;
+            }
+
+            status = Expect(TokenKind::COMMA);
+
+            if (!status.ok())
+            {
+                return status;
+            }
         }
 
         status = Expect(TokenKind::CLOSE_PAREN);
-
         if (!status.ok())
         {
             return status;
         }
-
-        std::vector<Column> columns;
-        columns.push_back(std::move(column.value()));
 
         return Statement{
             CreateTableStatement{
