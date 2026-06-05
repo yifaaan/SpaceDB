@@ -1,9 +1,10 @@
 #include "Sql/Parser/Parser.h"
 
+#include <charconv>
+#include <system_error>
 #include <utility>
 
 #include <absl/strings/str_cat.h>
-
 namespace spacedb
 {
     Parser::Parser(std::string_view input) : lexer_(input)
@@ -275,12 +276,78 @@ namespace spacedb
             return data_type.status();
         }
 
-        return Column{
+        Column column{
             .name = std::move(name.value()),
             .dataType = data_type.value(),
             .nullable = std::nullopt,
             .defaultValue = std::nullopt,
         };
+
+        while (true)
+        {
+            auto next = Peek();
+
+            if (!next.ok())
+            {
+                return next.status();
+            }
+
+            if ((*next)->kind != TokenKind::KEYWORD)
+            {
+                break;
+            }
+
+            const Keyword keyword = std::get<Keyword>((*next)->payload);
+
+            switch (keyword)
+            {
+            case Keyword::NULL_VALUE:
+                if (auto status = ExpectKeyword(Keyword::NULL_VALUE); !status.ok())
+                {
+                    return status;
+                }
+
+                column.nullable = true;
+                break;
+
+            case Keyword::NOT:
+                if (auto status = ExpectKeyword(Keyword::NOT); !status.ok())
+                {
+                    return status;
+                }
+
+                if (auto status = ExpectKeyword(Keyword::NULL_VALUE); !status.ok())
+                {
+                    return status;
+                }
+
+                column.nullable = false;
+                break;
+
+            case Keyword::DEFAULT:
+            {
+                if (auto status = ExpectKeyword(Keyword::DEFAULT); !status.ok())
+                {
+                    return status;
+                }
+
+                auto expression = ParseExpression();
+
+                if (!expression.ok())
+                {
+                    return expression.status();
+                }
+
+                column.defaultValue = std::move(expression.value());
+                break;
+            }
+
+            default:
+                return absl::InvalidArgumentError("parser: unexpected column constraint");
+            }
+        }
+
+        return column;
     }
 
     absl::StatusOr<DataType> Parser::ParseDataType()
@@ -318,6 +385,75 @@ namespace spacedb
 
         default:
             return absl::InvalidArgumentError("parser: unexpected column data type");
+        }
+    }
+
+    absl::StatusOr<Expression> Parser::ParseExpression()
+    {
+        auto token = Next();
+
+        if (!token.ok())
+        {
+            return token.status();
+        }
+
+        switch (token->kind)
+        {
+        case TokenKind::STRING:
+            return Expression{
+                std::get<std::string>(token->payload),
+            };
+
+        case TokenKind::NUMBER:
+        {
+            const auto& text = std::get<std::string>(token->payload);
+
+            if (text.find('.') == std::string::npos)
+            {
+                std::int64_t value = 0;
+
+                const auto [end, error] = std::from_chars(text.data(), text.data() + text.size(), value);
+
+                if (error != std::errc{} || end != text.data() + text.size())
+                {
+                    return absl::InvalidArgumentError("parser: invalid integer literal");
+                }
+
+                return Expression{value};
+            }
+
+            double value = 0.0;
+
+            const auto [end, error] = std::from_chars(text.data(), text.data() + text.size(), value);
+
+            if (error != std::errc{} || end != text.data() + text.size())
+            {
+                return absl::InvalidArgumentError("parser: invalid floating-point literal");
+            }
+
+            return Expression{value};
+        }
+
+        case TokenKind::KEYWORD:
+        {
+            switch (std::get<Keyword>(token->payload))
+            {
+            case Keyword::TRUE:
+                return Expression{true};
+
+            case Keyword::FALSE:
+                return Expression{false};
+
+            case Keyword::NULL_VALUE:
+                return Expression{std::monostate{}};
+
+            default:
+                return absl::InvalidArgumentError("parser: keyword is not an expression");
+            }
+        }
+
+        default:
+            return absl::InvalidArgumentError("parser: expected constant expression");
         }
     }
 

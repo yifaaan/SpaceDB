@@ -138,4 +138,56 @@ namespace spacedb
         REQUIRE_FALSE(result.ok());
         CHECK(result.status().code() == absl::StatusCode::kInvalidArgument);
     }
+
+    TEST_CASE("parser parses column constraints and defaults")
+    {
+        Parser parser("CREATE TABLE users ("
+                      "id INT NOT NULL,"
+                      "name STRING NULL,"
+                      "age INT DEFAULT 18,"
+                      "score FLOAT DEFAULT 3.14,"
+                      "active BOOL DEFAULT TRUE,"
+                      "note TEXT DEFAULT 'guest',"
+                      "missing STRING DEFAULT NULL"
+                      ");");
+
+        auto result = parser.Parse();
+
+        REQUIRE(result.ok());
+
+        const auto& statement = std::get<CreateTableStatement>(*result);
+
+        REQUIRE(statement.columns.size() == 7);
+
+        REQUIRE(statement.columns[0].nullable.has_value());
+        CHECK(*statement.columns[0].nullable == false);
+
+        REQUIRE(statement.columns[1].nullable.has_value());
+        CHECK(*statement.columns[1].nullable == true);
+
+        REQUIRE(statement.columns[2].defaultValue.has_value());
+        CHECK(std::get<std::int64_t>(*statement.columns[2].defaultValue) == 18);
+
+        REQUIRE(statement.columns[3].defaultValue.has_value());
+        CHECK(std::get<double>(*statement.columns[3].defaultValue) == 3.14);
+
+        REQUIRE(statement.columns[4].defaultValue.has_value());
+        CHECK(std::get<bool>(*statement.columns[4].defaultValue) == true);
+
+        REQUIRE(statement.columns[5].defaultValue.has_value());
+        CHECK(std::get<std::string>(*statement.columns[5].defaultValue) == "guest");
+
+        REQUIRE(statement.columns[6].defaultValue.has_value());
+        CHECK(std::holds_alternative<std::monostate>(*statement.columns[6].defaultValue));
+    }
+
+    TEST_CASE("parser rejects missing default expression")
+    {
+        Parser parser("CREATE TABLE users (age INT DEFAULT);");
+
+        auto result = parser.Parse();
+
+        REQUIRE_FALSE(result.ok());
+        CHECK(result.status().code() == absl::StatusCode::kInvalidArgument);
+    }
 } // namespace spacedb

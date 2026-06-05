@@ -27,6 +27,7 @@ namespace spacedb
 
         absl::StatusOr<Column> ParseColumn();
         absl::StatusOr<DataType> ParseDataType();
+        absl::StatusOr<Expression> ParseExpression();
 
         absl::Status EnsureLookahead();
 
