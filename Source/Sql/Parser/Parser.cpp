@@ -140,8 +140,13 @@ namespace spacedb
         {
         case Keyword::SELECT:
             return ParseSelect();
+
         case Keyword::CREATE:
             return ParseCreateTable();
+
+        case Keyword::INSERT:
+            return ParseInsert();
+
         default:
             return absl::InvalidArgumentError("parser: unsupported statement");
         }
@@ -200,11 +205,11 @@ namespace spacedb
             return status;
         }
 
-        auto table_name = ExpectIdentifier();
+        auto tableName = ExpectIdentifier();
 
-        if (!table_name.ok())
+        if (!tableName.ok())
         {
-            return table_name.status();
+            return tableName.status();
         }
 
         status = Expect(TokenKind::OPEN_PAREN);
@@ -254,8 +259,202 @@ namespace spacedb
 
         return Statement{
             CreateTableStatement{
-                .name = std::move(table_name.value()),
+                .name = std::move(tableName.value()),
                 .columns = std::move(columns),
+            },
+        };
+    }
+
+    absl::StatusOr<Statement> Parser::ParseInsert()
+    {
+        auto status = ExpectKeyword(Keyword::INSERT);
+
+        if (!status.ok())
+        {
+            return status;
+        }
+
+        status = ExpectKeyword(Keyword::INTO);
+
+        if (!status.ok())
+        {
+            return status;
+        }
+
+        auto tableName = ExpectIdentifier();
+
+        if (!tableName.ok())
+        {
+            return tableName.status();
+        }
+
+        std::optional<std::vector<std::string>> columns;
+
+        auto next = Peek();
+
+        if (!next.ok())
+        {
+            return next.status();
+        }
+
+        // 可选列清单：INSERT INTO users (id, name)
+        if ((*next)->kind == TokenKind::OPEN_PAREN)
+        {
+            status = Expect(TokenKind::OPEN_PAREN);
+
+            if (!status.ok())
+            {
+                return status;
+            }
+
+            std::vector<std::string> parsedColumns;
+
+            auto first_column = ExpectIdentifier();
+
+            if (!first_column.ok())
+            {
+                return first_column.status();
+            }
+
+            parsedColumns.push_back(std::move(first_column.value()));
+
+            while (true)
+            {
+                next = Peek();
+
+                if (!next.ok())
+                {
+                    return next.status();
+                }
+
+                if ((*next)->kind == TokenKind::CLOSE_PAREN)
+                {
+                    break;
+                }
+
+                status = Expect(TokenKind::COMMA);
+
+                if (!status.ok())
+                {
+                    return status;
+                }
+
+                auto column = ExpectIdentifier();
+
+                if (!column.ok())
+                {
+                    return column.status();
+                }
+
+                parsedColumns.push_back(std::move(column.value()));
+            }
+
+            status = Expect(TokenKind::CLOSE_PAREN);
+
+            if (!status.ok())
+            {
+                return status;
+            }
+
+            columns = std::move(parsedColumns);
+        }
+
+        status = ExpectKeyword(Keyword::VALUES);
+
+        if (!status.ok())
+        {
+            return status;
+        }
+
+        std::vector<std::vector<Expression>> values;
+
+        // 一个 INSERT 可以包含多行 VALUES
+        while (true)
+        {
+            status = Expect(TokenKind::OPEN_PAREN);
+
+            if (!status.ok())
+            {
+                return status;
+            }
+
+            std::vector<Expression> row;
+
+            // 空行 VALUES () 不允许
+            auto firstExpression = ParseExpression();
+
+            if (!firstExpression.ok())
+            {
+                return firstExpression.status();
+            }
+
+            row.push_back(std::move(firstExpression.value()));
+
+            while (true)
+            {
+                next = Peek();
+
+                if (!next.ok())
+                {
+                    return next.status();
+                }
+
+                if ((*next)->kind == TokenKind::CLOSE_PAREN)
+                {
+                    break;
+                }
+
+                status = Expect(TokenKind::COMMA);
+
+                if (!status.ok())
+                {
+                    return status;
+                }
+
+                auto expression = ParseExpression();
+
+                if (!expression.ok())
+                {
+                    return expression.status();
+                }
+
+                row.push_back(std::move(expression.value()));
+            }
+
+            status = Expect(TokenKind::CLOSE_PAREN);
+
+            if (!status.ok())
+            {
+                return status;
+            }
+
+            values.push_back(std::move(row));
+
+            next = Peek();
+
+            if (!next.ok())
+            {
+                return next.status();
+            }
+
+            if ((*next)->kind != TokenKind::COMMA)
+            {
+                break;
+            }
+
+            status = Expect(TokenKind::COMMA);
+
+            if (!status.ok())
+            {
+                return status;
+            }
+        }
+
+        return Statement{
+            InsertStatement{
+                .tableName = std::move(tableName.value()),
+                .columns = std::move(columns),
+                .values = std::move(values),
             },
         };
     }
@@ -269,16 +468,16 @@ namespace spacedb
             return name.status();
         }
 
-        auto data_type = ParseDataType();
+        auto dataType = ParseDataType();
 
-        if (!data_type.ok())
+        if (!dataType.ok())
         {
-            return data_type.status();
+            return dataType.status();
         }
 
         Column column{
             .name = std::move(name.value()),
-            .dataType = data_type.value(),
+            .dataType = dataType.value(),
             .nullable = std::nullopt,
             .defaultValue = std::nullopt,
         };

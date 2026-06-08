@@ -24,6 +24,7 @@ namespace spacedb
 
         absl::StatusOr<Statement> ParseSelect();
         absl::StatusOr<Statement> ParseCreateTable();
+        absl::StatusOr<Statement> ParseInsert();
 
         absl::StatusOr<Column> ParseColumn();
         absl::StatusOr<DataType> ParseDataType();

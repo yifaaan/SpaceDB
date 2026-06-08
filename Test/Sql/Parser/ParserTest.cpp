@@ -38,9 +38,38 @@ namespace spacedb
         CHECK(result.status().code() == absl::StatusCode::kInvalidArgument);
     }
 
-    TEST_CASE("parser rejects non select statement")
+    TEST_CASE("parser parses insert statement")
     {
-        Parser parser("INSERT INTO users VALUES (1);");
+        Parser parser("INSERT INTO users "
+                      "(id, name) "
+                      "VALUES (1, 'alice'), (2, 'bob');");
+
+        auto result = parser.Parse();
+
+        REQUIRE(result.ok());
+        REQUIRE(std::holds_alternative<InsertStatement>(*result));
+
+        const auto& statement = std::get<InsertStatement>(*result);
+
+        CHECK(statement.tableName == "users");
+
+        REQUIRE(statement.columns.has_value());
+        CHECK(*statement.columns == std::vector<std::string>{"id", "name"});
+
+        REQUIRE(statement.values.size() == 2);
+        REQUIRE(statement.values[0].size() == 2);
+        REQUIRE(statement.values[1].size() == 2);
+
+        CHECK(std::get<std::int64_t>(statement.values[0][0]) == 1);
+        CHECK(std::get<std::string>(statement.values[0][1]) == "alice");
+
+        CHECK(std::get<std::int64_t>(statement.values[1][0]) == 2);
+        CHECK(std::get<std::string>(statement.values[1][1]) == "bob");
+    }
+
+    TEST_CASE("parser rejects empty insert row")
+    {
+        Parser parser("INSERT INTO users VALUES ();");
 
         auto result = parser.Parse();
 
