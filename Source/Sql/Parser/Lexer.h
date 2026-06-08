@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <string_view>
+#include <vector>
 
 #include "Sql/Parser/Token.h"
 
@@ -15,6 +16,7 @@ namespace spacedb
         explicit Lexer(std::string_view input);
 
         absl::StatusOr<Token> Next();
+        absl::StatusOr<std::vector<Token>> TokenizeAll();
 
     private:
         bool AtEnd() const;
@@ -24,7 +26,7 @@ namespace spacedb
         void SkipWhitespace();
 
         Token ScanIdentifier();
-        Token ScanNumber();
+        absl::StatusOr<Token> ScanNumber();
         absl::StatusOr<Token> ScanString();
         absl::StatusOr<Token> ScanSymbol();
 

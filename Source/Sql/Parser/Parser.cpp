@@ -1,74 +1,42 @@
 #include "Sql/Parser/Parser.h"
 
-#include <charconv>
-#include <system_error>
 #include <utility>
 
 #include <absl/strings/str_cat.h>
+
 namespace spacedb
 {
     Parser::Parser(std::string_view input) : lexer_(input)
     {
     }
 
-    absl::Status Parser::EnsureLookahead()
+    const Token& Parser::Peek() const
     {
-        if (lookahead_.has_value())
-        {
-            return absl::OkStatus();
-        }
-
-        auto token = lexer_.Next();
-
-        if (!token.ok())
-        {
-            return token.status();
-        }
-
-        lookahead_ = *token;
-        return absl::OkStatus();
+        // tokens_ 以 END_OF_INPUT 结尾,index_ 永远指向有效 token
+        return tokens_[index_];
     }
 
-    absl::StatusOr<const Token*> Parser::Peek()
+    Token Parser::Next()
     {
-        auto status = EnsureLookahead();
+        Token token = tokens_[index_];
 
-        if (!status.ok())
+        // END_OF_INPUT 是最后一个 token,消费它后不再推进
+        if (token.kind != TokenKind::END_OF_INPUT)
         {
-            return status;
+            ++index_;
         }
 
-        return &lookahead_.value();
-    }
-
-    absl::StatusOr<Token> Parser::Next()
-    {
-        auto token = Peek();
-
-        if (!token.ok())
-        {
-            return token.status();
-        }
-
-        Token result = std::move(lookahead_.value());
-        lookahead_.reset();
-
-        return result;
+        return token;
     }
 
     absl::Status Parser::Expect(TokenKind expected)
     {
-        auto token = Next();
+        const Token token = Next();
 
-        if (!token.ok())
+        if (token.kind != expected)
         {
-            return token.status();
-        }
-
-        if (token->kind != expected)
-        {
-            return absl::InvalidArgumentError(
-                absl::StrCat("parser: unexpected token kind, expected ", static_cast<int>(expected), ", got ", static_cast<int>(token->kind)));
+            return absl::InvalidArgumentError(absl::StrCat(
+                "parser: expected ", TokenKindName(expected), ", got ", DescribeToken(token), " at ", DescribePosition(token.offset)));
         }
 
         return absl::OkStatus();
@@ -76,21 +44,18 @@ namespace spacedb
 
     absl::Status Parser::ExpectKeyword(Keyword expected)
     {
-        auto token = Next();
+        const Token token = Next();
 
-        if (!token.ok())
+        if (token.kind != TokenKind::KEYWORD)
         {
-            return token.status();
+            return absl::InvalidArgumentError(absl::StrCat(
+                "parser: expected keyword '", KeywordName(expected), "', got ", DescribeToken(token), " at ", DescribePosition(token.offset)));
         }
 
-        if (token->kind != TokenKind::KEYWORD)
+        if (std::get<Keyword>(token.payload) != expected)
         {
-            return absl::InvalidArgumentError("parser: expected keyword");
-        }
-
-        if (std::get<Keyword>(token->payload) != expected)
-        {
-            return absl::InvalidArgumentError("parser: unexpected keyword");
+            return absl::InvalidArgumentError(absl::StrCat(
+                "parser: expected keyword '", KeywordName(expected), "', got ", DescribeToken(token), " at ", DescribePosition(token.offset)));
         }
 
         return absl::OkStatus();
@@ -98,45 +63,33 @@ namespace spacedb
 
     absl::StatusOr<std::string> Parser::ExpectIdentifier()
     {
-        auto token = Next();
+        const Token token = Next();
 
-        if (!token.ok())
+        if (token.kind != TokenKind::IDENTIFIER)
         {
-            return token.status();
+            return absl::InvalidArgumentError(absl::StrCat(
+                "parser: expected identifier, got ", DescribeToken(token), " at ", DescribePosition(token.offset)));
         }
 
-        if (token->kind != TokenKind::IDENTIFIER)
-        {
-            return absl::InvalidArgumentError("parser: expected identifier");
-        }
-
-        return std::get<std::string>(token->payload);
+        return std::get<std::string>(std::move(token.payload));
     }
 
     absl::StatusOr<Statement> Parser::ParseStatement()
     {
-        auto token = Peek();
+        const Token& current = Peek();
 
-        if (!token.ok())
+        if (current.kind == TokenKind::END_OF_INPUT)
         {
-            return token.status();
+            return absl::InvalidArgumentError(absl::StrCat("parser: expected statement, got end of input at ", DescribePosition(current.offset)));
         }
 
-        auto current = token.value();
-
-        if (current->kind == TokenKind::END_OF_INPUT)
+        if (current.kind != TokenKind::KEYWORD)
         {
-            return absl::InvalidArgumentError("parser: expected statement, got end of input");
+            return absl::InvalidArgumentError(absl::StrCat(
+                "parser: statement must begin with a keyword, got ", DescribeToken(current), " at ", DescribePosition(current.offset)));
         }
 
-        if (current->kind != TokenKind::KEYWORD)
-        {
-            return absl::InvalidArgumentError("parser: statement must begin with a keyword");
-        }
-
-        auto keyword = std::get<Keyword>(current->payload);
-
-        switch (keyword)
+        switch (std::get<Keyword>(current.payload))
         {
         case Keyword::SELECT:
             return ParseSelect();
@@ -154,53 +107,17 @@ namespace spacedb
 
     absl::StatusOr<Statement> Parser::ParseSelect()
     {
-        auto status = ExpectKeyword(Keyword::SELECT);
-
-        if (!status.ok())
+        if (auto status = ExpectKeyword(Keyword::SELECT); !status.ok())
         {
             return status;
         }
 
-        status = Expect(TokenKind::ASTERISK);
-
-        if (!status.ok())
+        if (auto status = Expect(TokenKind::ASTERISK); !status.ok())
         {
             return status;
         }
 
-        status = ExpectKeyword(Keyword::FROM);
-
-        if (!status.ok())
-        {
-            return status;
-        }
-
-        auto table_name = ExpectIdentifier();
-
-        if (!table_name.ok())
-        {
-            return table_name.status();
-        }
-
-        return Statement{
-            SelectStatement{
-                .tableName = std::move(table_name.value()),
-            },
-        };
-    }
-
-    absl::StatusOr<Statement> Parser::ParseCreateTable()
-    {
-        auto status = ExpectKeyword(Keyword::CREATE);
-
-        if (!status.ok())
-        {
-            return status;
-        }
-
-        status = ExpectKeyword(Keyword::TABLE);
-
-        if (!status.ok())
+        if (auto status = ExpectKeyword(Keyword::FROM); !status.ok())
         {
             return status;
         }
@@ -212,9 +129,33 @@ namespace spacedb
             return tableName.status();
         }
 
-        status = Expect(TokenKind::OPEN_PAREN);
+        return Statement{
+            SelectStatement{
+                .tableName = std::move(tableName.value()),
+            },
+        };
+    }
 
-        if (!status.ok())
+    absl::StatusOr<Statement> Parser::ParseCreateTable()
+    {
+        if (auto status = ExpectKeyword(Keyword::CREATE); !status.ok())
+        {
+            return status;
+        }
+
+        if (auto status = ExpectKeyword(Keyword::TABLE); !status.ok())
+        {
+            return status;
+        }
+
+        auto tableName = ExpectIdentifier();
+
+        if (!tableName.ok())
+        {
+            return tableName.status();
+        }
+
+        if (auto status = Expect(TokenKind::OPEN_PAREN); !status.ok())
         {
             return status;
         }
@@ -231,28 +172,18 @@ namespace spacedb
 
             columns.push_back(std::move(column.value()));
 
-            auto next = Peek();
-
-            if (!next.ok())
-            {
-                return next.status();
-            }
-
-            if ((*next)->kind != TokenKind::COMMA)
+            if (Peek().kind != TokenKind::COMMA)
             {
                 break;
             }
 
-            status = Expect(TokenKind::COMMA);
-
-            if (!status.ok())
+            if (auto status = Expect(TokenKind::COMMA); !status.ok())
             {
                 return status;
             }
         }
 
-        status = Expect(TokenKind::CLOSE_PAREN);
-        if (!status.ok())
+        if (auto status = Expect(TokenKind::CLOSE_PAREN); !status.ok())
         {
             return status;
         }
@@ -267,16 +198,12 @@ namespace spacedb
 
     absl::StatusOr<Statement> Parser::ParseInsert()
     {
-        auto status = ExpectKeyword(Keyword::INSERT);
-
-        if (!status.ok())
+        if (auto status = ExpectKeyword(Keyword::INSERT); !status.ok())
         {
             return status;
         }
 
-        status = ExpectKeyword(Keyword::INTO);
-
-        if (!status.ok())
+        if (auto status = ExpectKeyword(Keyword::INTO); !status.ok())
         {
             return status;
         }
@@ -290,51 +217,33 @@ namespace spacedb
 
         std::optional<std::vector<std::string>> columns;
 
-        auto next = Peek();
-
-        if (!next.ok())
-        {
-            return next.status();
-        }
-
         // 可选列清单：INSERT INTO users (id, name)
-        if ((*next)->kind == TokenKind::OPEN_PAREN)
+        if (Peek().kind == TokenKind::OPEN_PAREN)
         {
-            status = Expect(TokenKind::OPEN_PAREN);
-
-            if (!status.ok())
+            if (auto status = Expect(TokenKind::OPEN_PAREN); !status.ok())
             {
                 return status;
             }
 
             std::vector<std::string> parsedColumns;
 
-            auto first_column = ExpectIdentifier();
+            auto firstColumn = ExpectIdentifier();
 
-            if (!first_column.ok())
+            if (!firstColumn.ok())
             {
-                return first_column.status();
+                return firstColumn.status();
             }
 
-            parsedColumns.push_back(std::move(first_column.value()));
+            parsedColumns.push_back(std::move(firstColumn.value()));
 
             while (true)
             {
-                next = Peek();
-
-                if (!next.ok())
-                {
-                    return next.status();
-                }
-
-                if ((*next)->kind == TokenKind::CLOSE_PAREN)
+                if (Peek().kind == TokenKind::CLOSE_PAREN)
                 {
                     break;
                 }
 
-                status = Expect(TokenKind::COMMA);
-
-                if (!status.ok())
+                if (auto status = Expect(TokenKind::COMMA); !status.ok())
                 {
                     return status;
                 }
@@ -349,9 +258,7 @@ namespace spacedb
                 parsedColumns.push_back(std::move(column.value()));
             }
 
-            status = Expect(TokenKind::CLOSE_PAREN);
-
-            if (!status.ok())
+            if (auto status = Expect(TokenKind::CLOSE_PAREN); !status.ok())
             {
                 return status;
             }
@@ -359,9 +266,7 @@ namespace spacedb
             columns = std::move(parsedColumns);
         }
 
-        status = ExpectKeyword(Keyword::VALUES);
-
-        if (!status.ok())
+        if (auto status = ExpectKeyword(Keyword::VALUES); !status.ok())
         {
             return status;
         }
@@ -371,9 +276,7 @@ namespace spacedb
         // 一个 INSERT 可以包含多行 VALUES
         while (true)
         {
-            status = Expect(TokenKind::OPEN_PAREN);
-
-            if (!status.ok())
+            if (auto status = Expect(TokenKind::OPEN_PAREN); !status.ok())
             {
                 return status;
             }
@@ -392,21 +295,12 @@ namespace spacedb
 
             while (true)
             {
-                next = Peek();
-
-                if (!next.ok())
-                {
-                    return next.status();
-                }
-
-                if ((*next)->kind == TokenKind::CLOSE_PAREN)
+                if (Peek().kind == TokenKind::CLOSE_PAREN)
                 {
                     break;
                 }
 
-                status = Expect(TokenKind::COMMA);
-
-                if (!status.ok())
+                if (auto status = Expect(TokenKind::COMMA); !status.ok())
                 {
                     return status;
                 }
@@ -421,30 +315,19 @@ namespace spacedb
                 row.push_back(std::move(expression.value()));
             }
 
-            status = Expect(TokenKind::CLOSE_PAREN);
-
-            if (!status.ok())
+            if (auto status = Expect(TokenKind::CLOSE_PAREN); !status.ok())
             {
                 return status;
             }
 
             values.push_back(std::move(row));
 
-            next = Peek();
-
-            if (!next.ok())
-            {
-                return next.status();
-            }
-
-            if ((*next)->kind != TokenKind::COMMA)
+            if (Peek().kind != TokenKind::COMMA)
             {
                 break;
             }
 
-            status = Expect(TokenKind::COMMA);
-
-            if (!status.ok())
+            if (auto status = Expect(TokenKind::COMMA); !status.ok())
             {
                 return status;
             }
@@ -484,19 +367,14 @@ namespace spacedb
 
         while (true)
         {
-            auto next = Peek();
+            const Token& next = Peek();
 
-            if (!next.ok())
-            {
-                return next.status();
-            }
-
-            if ((*next)->kind != TokenKind::KEYWORD)
+            if (next.kind != TokenKind::KEYWORD)
             {
                 break;
             }
 
-            const Keyword keyword = std::get<Keyword>((*next)->payload);
+            const Keyword keyword = std::get<Keyword>(next.payload);
 
             switch (keyword)
             {
@@ -542,7 +420,8 @@ namespace spacedb
             }
 
             default:
-                return absl::InvalidArgumentError("parser: unexpected column constraint");
+                return absl::InvalidArgumentError(absl::StrCat(
+                    "parser: unexpected column constraint '", KeywordName(keyword), "' at ", DescribePosition(next.offset)));
             }
         }
 
@@ -551,19 +430,15 @@ namespace spacedb
 
     absl::StatusOr<DataType> Parser::ParseDataType()
     {
-        auto token = Next();
+        const Token token = Next();
 
-        if (!token.ok())
+        if (token.kind != TokenKind::KEYWORD)
         {
-            return token.status();
+            return absl::InvalidArgumentError(absl::StrCat(
+                "parser: expected column data type, got ", DescribeToken(token), " at ", DescribePosition(token.offset)));
         }
 
-        if (token->kind != TokenKind::KEYWORD)
-        {
-            return absl::InvalidArgumentError("parser: expected column data type");
-        }
-
-        switch (std::get<Keyword>(token->payload))
+        switch (std::get<Keyword>(token.payload))
         {
         case Keyword::INT:
         case Keyword::INTEGER:
@@ -583,59 +458,36 @@ namespace spacedb
             return DataType::STRING;
 
         default:
-            return absl::InvalidArgumentError("parser: unexpected column data type");
+            return absl::InvalidArgumentError(absl::StrCat(
+                "parser: unexpected column data type '", KeywordName(std::get<Keyword>(token.payload)), "' at ", DescribePosition(token.offset)));
         }
     }
 
     absl::StatusOr<Expression> Parser::ParseExpression()
     {
-        auto token = Next();
+        Token token = Next();
 
-        if (!token.ok())
-        {
-            return token.status();
-        }
-
-        switch (token->kind)
+        switch (token.kind)
         {
         case TokenKind::STRING:
             return Expression{
-                std::get<std::string>(token->payload),
+                std::get<std::string>(std::move(token.payload)),
             };
 
         case TokenKind::NUMBER:
         {
-            const auto& text = std::get<std::string>(token->payload);
-
-            if (text.find('.') == std::string::npos)
+            // 字面量已在词法阶段完成解析和校验,这里只需取出
+            if (const auto* value = std::get_if<std::int64_t>(&token.payload))
             {
-                std::int64_t value = 0;
-
-                const auto [end, error] = std::from_chars(text.data(), text.data() + text.size(), value);
-
-                if (error != std::errc{} || end != text.data() + text.size())
-                {
-                    return absl::InvalidArgumentError("parser: invalid integer literal");
-                }
-
-                return Expression{value};
+                return Expression{*value};
             }
 
-            double value = 0.0;
-
-            const auto [end, error] = std::from_chars(text.data(), text.data() + text.size(), value);
-
-            if (error != std::errc{} || end != text.data() + text.size())
-            {
-                return absl::InvalidArgumentError("parser: invalid floating-point literal");
-            }
-
-            return Expression{value};
+            return Expression{std::get<double>(token.payload)};
         }
 
         case TokenKind::KEYWORD:
         {
-            switch (std::get<Keyword>(token->payload))
+            switch (std::get<Keyword>(token.payload))
             {
             case Keyword::TRUE:
                 return Expression{true};
@@ -647,17 +499,29 @@ namespace spacedb
                 return Expression{std::monostate{}};
 
             default:
-                return absl::InvalidArgumentError("parser: keyword is not an expression");
+                return absl::InvalidArgumentError(absl::StrCat(
+                    "parser: keyword '", KeywordName(std::get<Keyword>(token.payload)), "' is not an expression at ", DescribePosition(token.offset)));
             }
         }
 
         default:
-            return absl::InvalidArgumentError("parser: expected constant expression");
+            return absl::InvalidArgumentError(absl::StrCat(
+                "parser: expected constant expression, got ", DescribeToken(token), " at ", DescribePosition(token.offset)));
         }
     }
 
     absl::StatusOr<Statement> Parser::Parse()
     {
+        auto tokenize = lexer_.TokenizeAll();
+
+        if (!tokenize.ok())
+        {
+            return tokenize.status();
+        }
+
+        tokens_ = std::move(*tokenize);
+        index_ = 0;
+
         auto statement = ParseStatement();
 
         if (!statement.ok())
@@ -665,16 +529,12 @@ namespace spacedb
             return statement.status();
         }
 
-        auto status = Expect(TokenKind::SEMICOLON);
-
-        if (!status.ok())
+        if (auto status = Expect(TokenKind::SEMICOLON); !status.ok())
         {
             return status;
         }
 
-        status = Expect(TokenKind::END_OF_INPUT);
-
-        if (!status.ok())
+        if (auto status = Expect(TokenKind::END_OF_INPUT); !status.ok())
         {
             return status;
         }

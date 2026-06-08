@@ -6,6 +6,7 @@
 #include <utility>
 
 #include <absl/strings/match.h>
+#include <absl/strings/str_cat.h>
 
 namespace spacedb
 {
@@ -28,5 +29,117 @@ namespace spacedb
         }
 
         return found->second;
+    }
+
+    std::string_view KeywordName(Keyword keyword)
+    {
+        switch (keyword)
+        {
+        case Keyword::CREATE:
+            return "CREATE";
+        case Keyword::TABLE:
+            return "TABLE";
+        case Keyword::INT:
+            return "INT";
+        case Keyword::INTEGER:
+            return "INTEGER";
+        case Keyword::BOOLEAN:
+            return "BOOLEAN";
+        case Keyword::BOOL:
+            return "BOOL";
+        case Keyword::STRING:
+            return "STRING";
+        case Keyword::TEXT:
+            return "TEXT";
+        case Keyword::VARCHAR:
+            return "VARCHAR";
+        case Keyword::FLOAT:
+            return "FLOAT";
+        case Keyword::DOUBLE:
+            return "DOUBLE";
+        case Keyword::SELECT:
+            return "SELECT";
+        case Keyword::FROM:
+            return "FROM";
+        case Keyword::INSERT:
+            return "INSERT";
+        case Keyword::INTO:
+            return "INTO";
+        case Keyword::VALUES:
+            return "VALUES";
+        case Keyword::TRUE:
+            return "TRUE";
+        case Keyword::FALSE:
+            return "FALSE";
+        case Keyword::DEFAULT:
+            return "DEFAULT";
+        case Keyword::NOT:
+            return "NOT";
+        case Keyword::NULL_VALUE:
+            return "NULL";
+        case Keyword::PRIMARY:
+            return "PRIMARY";
+        case Keyword::KEY:
+            return "KEY";
+        }
+    }
+
+    std::string_view TokenKindName(TokenKind kind)
+    {
+        switch (kind)
+        {
+        case TokenKind::END_OF_INPUT:
+            return "end of input";
+        case TokenKind::KEYWORD:
+            return "keyword";
+        case TokenKind::IDENTIFIER:
+            return "identifier";
+        case TokenKind::STRING:
+            return "string literal";
+        case TokenKind::NUMBER:
+            return "number literal";
+        case TokenKind::OPEN_PAREN:
+            return "'('";
+        case TokenKind::CLOSE_PAREN:
+            return "')'";
+        case TokenKind::COMMA:
+            return "','";
+        case TokenKind::SEMICOLON:
+            return "';'";
+        case TokenKind::ASTERISK:
+            return "'*'";
+        case TokenKind::PLUS:
+            return "'+'";
+        case TokenKind::MINUS:
+            return "'-'";
+        case TokenKind::SLASH:
+            return "'/'";
+        }
+    }
+
+    std::string DescribePosition(std::size_t offset)
+    {
+        return absl::StrCat("offset ", offset);
+    }
+
+    std::string DescribeToken(const Token& token)
+    {
+        switch (token.kind)
+        {
+        case TokenKind::KEYWORD:
+            return absl::StrCat("keyword '", KeywordName(std::get<Keyword>(token.payload)), "'");
+        case TokenKind::IDENTIFIER:
+            return absl::StrCat("identifier '", std::get<std::string>(token.payload), "'");
+        case TokenKind::STRING:
+            return absl::StrCat("string literal '", std::get<std::string>(token.payload), "'");
+        case TokenKind::NUMBER:
+            if (const auto* integer = std::get_if<std::int64_t>(&token.payload))
+            {
+                return absl::StrCat("number literal ", *integer);
+            }
+            return absl::StrCat("number literal ", std::get<double>(token.payload));
+        default:
+            return std::string(TokenKindName(token.kind));
+        }
     }
 } // namespace spacedb

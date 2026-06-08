@@ -1,8 +1,10 @@
 #pragma once
 
+#include <cstddef>
 #include <optional>
 #include <string>
 #include <string_view>
+#include <vector>
 
 #include "Sql/Parser/Ast.h"
 #include "Sql/Parser/Lexer.h"
@@ -30,10 +32,8 @@ namespace spacedb
         absl::StatusOr<DataType> ParseDataType();
         absl::StatusOr<Expression> ParseExpression();
 
-        absl::Status EnsureLookahead();
-
-        absl::StatusOr<const Token*> Peek();
-        absl::StatusOr<Token> Next();
+        const Token& Peek() const;
+        Token Next();
 
         absl::Status Expect(TokenKind expected);
         absl::Status ExpectKeyword(Keyword expected);
@@ -41,6 +41,7 @@ namespace spacedb
         absl::StatusOr<std::string> ExpectIdentifier();
 
         Lexer lexer_;
-        std::optional<Token> lookahead_;
+        std::vector<Token> tokens_;
+        std::size_t index_ = 0;
     };
 } // namespace spacedb

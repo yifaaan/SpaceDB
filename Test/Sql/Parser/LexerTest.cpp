@@ -57,21 +57,41 @@ namespace spacedb
 
     TEST_CASE("lexer scans integer and floating point numbers")
     {
-        Lexer lexer("0 42 3.14 10.");
+        Lexer lexer("0 42 3.14");
 
-        for (const std::string expected : {"0", "42", "3.14", "10."})
-        {
-            auto token = lexer.Next();
+        auto integer = lexer.Next();
 
-            REQUIRE(token.ok());
-            CHECK(token->kind == TokenKind::NUMBER);
-            CHECK(std::get<std::string>(token->payload) == expected);
-        }
+        REQUIRE(integer.ok());
+        CHECK(integer->kind == TokenKind::NUMBER);
+        CHECK(std::get<std::int64_t>(integer->payload) == 0);
+
+        integer = lexer.Next();
+
+        REQUIRE(integer.ok());
+        CHECK(integer->kind == TokenKind::NUMBER);
+        CHECK(std::get<std::int64_t>(integer->payload) == 42);
+
+        auto floating = lexer.Next();
+
+        REQUIRE(floating.ok());
+        CHECK(floating->kind == TokenKind::NUMBER);
+        CHECK(std::get<double>(floating->payload) == 3.14);
 
         auto eof = lexer.Next();
 
         REQUIRE(eof.ok());
         CHECK(eof->kind == TokenKind::END_OF_INPUT);
+    }
+
+    TEST_CASE("lexer rejects trailing decimal point")
+    {
+        Lexer lexer("10.");
+
+        auto result = lexer.Next();
+
+        REQUIRE_FALSE(result.ok());
+        CHECK(result.status().code() == absl::StatusCode::kInvalidArgument);
+        CHECK(result.status().message() == "lexer: digits required after decimal point at offset 0");
     }
 
     TEST_CASE("lexer stops a number before an identifier")
@@ -81,7 +101,7 @@ namespace spacedb
         auto number = lexer.Next();
         REQUIRE(number.ok());
         CHECK(number->kind == TokenKind::NUMBER);
-        CHECK(std::get<std::string>(number->payload) == "12");
+        CHECK(std::get<std::int64_t>(number->payload) == 12);
 
         auto identifier = lexer.Next();
         REQUIRE(identifier.ok());
@@ -95,7 +115,7 @@ namespace spacedb
 
         auto number = lexer.Next();
         REQUIRE(number.ok());
-        CHECK(std::get<std::string>(number->payload) == "1.2");
+        CHECK(std::get<double>(number->payload) == 1.2);
 
         auto invalid = lexer.Next();
         REQUIRE_FALSE(invalid.ok());
@@ -140,7 +160,7 @@ namespace spacedb
 
         REQUIRE_FALSE(result.ok());
         CHECK(result.status().code() == absl::StatusCode::kInvalidArgument);
-        CHECK(result.status().message() == "lexer: unterminated string literal");
+        CHECK(result.status().message() == "lexer: unterminated string literal at offset 0");
     }
 
     TEST_CASE("lexer scans supported symbols")
@@ -238,7 +258,7 @@ namespace spacedb
 
             if (index == 10)
             {
-                CHECK(std::get<std::string>(token->payload) == "1");
+                CHECK(std::get<std::int64_t>(token->payload) == 1);
             }
 
             if (index == 12)
@@ -246,5 +266,42 @@ namespace spacedb
                 CHECK(std::get<std::string>(token->payload) == "alice");
             }
         }
+    }
+
+    TEST_CASE("lexer records token offsets")
+    {
+        Lexer lexer("CREATE\n  users");
+
+        auto create = lexer.Next();
+
+        REQUIRE(create.ok());
+        CHECK(create->offset == 0);
+
+        auto users = lexer.Next();
+
+        REQUIRE(users.ok());
+        CHECK(users->offset == 9);
+    }
+
+    TEST_CASE("lexer rejects integer literal out of range")
+    {
+        Lexer lexer("99999999999999999999999999");
+
+        auto result = lexer.Next();
+
+        REQUIRE_FALSE(result.ok());
+        CHECK(result.status().code() == absl::StatusCode::kInvalidArgument);
+        CHECK(result.status().message() == "lexer: integer literal out of range at offset 0");
+    }
+
+    TEST_CASE("lexer tokenizes entire input at once")
+    {
+        Lexer lexer("SELECT * FROM users;");
+
+        auto tokens = lexer.TokenizeAll();
+
+        REQUIRE(tokens.ok());
+        REQUIRE(tokens->size() == 6);
+        CHECK(tokens->back().kind == TokenKind::END_OF_INPUT);
     }
 } // namespace spacedb

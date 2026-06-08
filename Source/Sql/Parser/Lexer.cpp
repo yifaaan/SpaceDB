@@ -1,6 +1,9 @@
 #include "Sql/Parser/Lexer.h"
 
+#include <charconv>
 #include <string>
+#include <system_error>
+#include <utility>
 
 #include "Sql/Parser/Token.h"
 #include "absl/status/status.h"
@@ -58,14 +61,14 @@ namespace spacedb
 
     Token Lexer::ScanIdentifier()
     {
-        size_t begin = offset_;
+        const std::size_t beginOffset = offset_;
 
-        while (offset_ < input_.size() && IsIdentifierPart(input_[offset_]))
+        while (!AtEnd() && IsIdentifierPart(Peek()))
         {
-            ++offset_;
+            Advance();
         }
 
-        std::string value(input_.substr(begin, offset_ - begin));
+        std::string value(input_.substr(beginOffset, offset_ - beginOffset));
         absl::AsciiStrToLower(&value);
 
         const auto keyword = KeywordFromIdentifier(value);
@@ -75,39 +78,82 @@ namespace spacedb
             return Token{
                 .kind = TokenKind::KEYWORD,
                 .payload = TokenPayload{keyword.value()},
+                .offset = beginOffset,
             };
         }
 
         return Token{
             .kind = TokenKind::IDENTIFIER,
             .payload = TokenPayload{std::move(value)},
+            .offset = beginOffset,
         };
     }
 
-    Token Lexer::ScanNumber()
+    absl::StatusOr<Token> Lexer::ScanNumber()
     {
-        size_t begin = offset_;
+        size_t beginOffset = offset_;
 
         while (!AtEnd() && IsDigit(Peek()))
         {
             Advance();
         }
 
-        if (!AtEnd() && Peek() == '.')
+        bool isFloat = !AtEnd() && Peek() == '.';
+
+        if (isFloat)
         {
             Advance();
+
+            // SQL 不允许 "10." 这类小数点后无数字的字面量
+            if (AtEnd() || !IsDigit(Peek()))
+            {
+                return absl::InvalidArgumentError(absl::StrCat("lexer: digits required after decimal point at ", DescribePosition(beginOffset)));
+            }
+
             while (!AtEnd() && IsDigit(Peek()))
             {
                 Advance();
             }
         }
 
+        const std::string_view text = input_.substr(beginOffset, offset_ - beginOffset);
+
+        if (isFloat)
+        {
+            double value = 0.0;
+
+            const auto [end, error] = std::from_chars(text.data(), text.data() + text.size(), value);
+
+            if (error != std::errc{} || end != text.data() + text.size())
+            {
+                return absl::InvalidArgumentError(absl::StrCat("lexer: invalid number literal '", text, "' at ", DescribePosition(beginOffset)));
+            }
+
+            return Token{
+                .kind = TokenKind::NUMBER,
+                .payload = TokenPayload{value},
+                .offset = beginOffset,
+            };
+        }
+
+        int64_t value = 0;
+
+        const auto [end, error] = std::from_chars(text.data(), text.data() + text.size(), value);
+
+        if (error == std::errc::result_out_of_range)
+        {
+            return absl::InvalidArgumentError(absl::StrCat("lexer: integer literal out of range at ", DescribePosition(beginOffset)));
+        }
+
+        if (error != std::errc{} || end != text.data() + text.size())
+        {
+            return absl::InvalidArgumentError(absl::StrCat("lexer: invalid integer literal '", text, "' at ", DescribePosition(beginOffset)));
+        }
+
         return Token{
             .kind = TokenKind::NUMBER,
-            .payload =
-                TokenPayload{
-                    std::string(input_.substr(begin, offset_ - begin)),
-                },
+            .payload = TokenPayload{value},
+            .offset = beginOffset,
         };
     }
 
@@ -115,6 +161,8 @@ namespace spacedb
     {
         // Next() 只有在当前字符为单引号时才调用本函数。
         // 先消费起始单引号
+        const std::size_t beginOffset = offset_;
+
         Advance();
 
         std::string value;
@@ -123,15 +171,21 @@ namespace spacedb
             char current = Advance();
             if (current == '\'')
             {
-                return Token{.kind = TokenKind::STRING, .payload = TokenPayload{std::move(value)}};
+                return Token{
+                    .kind = TokenKind::STRING,
+                    .payload = TokenPayload{std::move(value)},
+                    .offset = beginOffset,
+                };
             }
             value.push_back(current);
         }
-        return absl::InvalidArgumentError("lexer: unterminated string literal");
+        return absl::InvalidArgumentError(absl::StrCat("lexer: unterminated string literal at ", DescribePosition(beginOffset)));
     }
 
     absl::StatusOr<Token> Lexer::ScanSymbol()
     {
+        size_t beginOffset = offset_;
+
         TokenKind kind;
 
         switch (Peek())
@@ -161,7 +215,8 @@ namespace spacedb
             kind = TokenKind::SLASH;
             break;
         default:
-            return absl::InvalidArgumentError(absl::StrCat("lexer: unexpected character '", std::string(1, Peek()), "'"));
+            return absl::InvalidArgumentError(
+                absl::StrCat("lexer: unexpected character '", std::string(1, Peek()), "' at ", DescribePosition(beginOffset)));
         }
 
         Advance();
@@ -169,7 +224,33 @@ namespace spacedb
         return Token{
             .kind = kind,
             .payload = std::monostate{},
+            .offset = beginOffset,
         };
+    }
+
+    absl::StatusOr<std::vector<Token>> Lexer::TokenizeAll()
+    {
+        std::vector<Token> tokens;
+
+        while (true)
+        {
+            auto token = Next();
+
+            if (!token.ok())
+            {
+                return token.status();
+            }
+
+            const bool isEnd = token->kind == TokenKind::END_OF_INPUT;
+            tokens.push_back(std::move(*token));
+
+            if (isEnd)
+            {
+                break;
+            }
+        }
+
+        return tokens;
     }
 
     absl::StatusOr<Token> Lexer::Next()
@@ -181,6 +262,7 @@ namespace spacedb
             return Token{
                 .kind = TokenKind::END_OF_INPUT,
                 .payload = std::monostate{},
+                .offset = offset_,
             };
         }
 

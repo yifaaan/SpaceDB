@@ -219,4 +219,24 @@ namespace spacedb
         REQUIRE_FALSE(result.ok());
         CHECK(result.status().code() == absl::StatusCode::kInvalidArgument);
     }
+
+    TEST_CASE("parser error messages include offset")
+    {
+        Parser parser("SELECT * FROM users");
+
+        auto result = parser.Parse();
+
+        REQUIRE_FALSE(result.ok());
+        CHECK(result.status().message() == "parser: expected ';', got end of input at offset 19");
+    }
+
+    TEST_CASE("parser describes unexpected token in error")
+    {
+        Parser parser("SELECT * FROM 123;");
+
+        auto result = parser.Parse();
+
+        REQUIRE_FALSE(result.ok());
+        CHECK(result.status().message() == "parser: expected identifier, got number literal 123 at offset 14");
+    }
 } // namespace spacedb
