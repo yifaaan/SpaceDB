@@ -37,3 +37,15 @@ target_link_libraries(SpaceDBParserTest
 )
 
 catch_discover_tests(SpaceDBParserTest)
+
+add_executable(SpaceDBSchemaTest
+    Sql/Schema/SchemaTest.cpp
+)
+
+target_link_libraries(SpaceDBSchemaTest
+    PRIVATE
+        SpaceDB::SpaceDB
+        Catch2::Catch2WithMain
+)
+
+catch_discover_tests(SpaceDBSchemaTest)

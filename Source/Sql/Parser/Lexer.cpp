@@ -241,7 +241,7 @@ namespace spacedb
                 return token.status();
             }
 
-            const bool isEnd = token->kind == TokenKind::END_OF_INPUT;
+            bool isEnd = token->kind == TokenKind::END_OF_INPUT;
             tokens.push_back(std::move(*token));
 
             if (isEnd)

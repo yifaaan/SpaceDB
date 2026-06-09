@@ -133,7 +133,7 @@ namespace spacedb
         case TokenKind::STRING:
             return absl::StrCat("string literal '", std::get<std::string>(token.payload), "'");
         case TokenKind::NUMBER:
-            if (const auto* integer = std::get_if<std::int64_t>(&token.payload))
+            if (auto integer = std::get_if<std::int64_t>(&token.payload))
             {
                 return absl::StrCat("number literal ", *integer);
             }
