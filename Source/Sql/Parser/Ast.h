@@ -6,7 +6,7 @@
 #include <variant>
 #include <vector>
 
-#include "Sql/Types/DataType.h"
+#include "../Types/DataType.h"
 
 namespace spacedb
 {

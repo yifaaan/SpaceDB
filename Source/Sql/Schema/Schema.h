@@ -4,8 +4,8 @@
 #include <string>
 #include <vector>
 
-#include "Sql/Types/DataType.h"
-#include "Sql/Types/Value.h"
+#include "../Types/DataType.h"
+#include "../Types/Value.h"
 
 namespace spacedb::schema
 {

@@ -6,8 +6,8 @@
 #include <string_view>
 #include <vector>
 
-#include "Sql/Parser/Ast.h"
-#include "Sql/Parser/Lexer.h"
+#include "../Parser/Ast.h"
+#include "../Parser/Lexer.h"
 
 #include <absl/status/status.h>
 #include <absl/status/statusor.h>

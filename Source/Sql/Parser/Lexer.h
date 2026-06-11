@@ -4,7 +4,7 @@
 #include <string_view>
 #include <vector>
 
-#include "Sql/Parser/Token.h"
+#include "../Parser/Token.h"
 
 #include <absl/status/statusor.h>
 

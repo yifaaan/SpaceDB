@@ -19,6 +19,7 @@ add_library(SpaceDB STATIC
     Source/Sql/Parser/Token.cpp
     Source/Sql/Parser/Lexer.cpp
     Source/Sql/Parser/Parser.cpp
+    Source/Sql/Plan/Planner.cpp
 )
 add_library(SpaceDB::SpaceDB ALIAS SpaceDB)
 
