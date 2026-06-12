@@ -2,6 +2,7 @@
 
 #include <variant>
 
+#include "../Parser/Ast.h"
 #include "../Schema/Schema.h"
 
 namespace spacedb
@@ -13,7 +14,16 @@ namespace spacedb
         friend bool operator==(const CreateTableNode&, const CreateTableNode&) = default;
     };
 
-    using PlanNode = std::variant<CreateTableNode>;
+    struct InsertNode
+    {
+        std::string tableName;
+        std::vector<std::string> columns;
+        std::vector<std::vector<Expression>> values;
+
+        friend bool operator==(const InsertNode&, const InsertNode&) = default;
+    };
+
+    using PlanNode = std::variant<CreateTableNode, InsertNode>;
 
     struct Plan
     {

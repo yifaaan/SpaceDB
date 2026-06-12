@@ -67,11 +67,35 @@ namespace spacedb
         };
     }
 
+    Plan Planner::BuildInsert(InsertStatement statement)
+    {
+        std::vector<std::string> columns;
+
+        if (statement.columns.has_value())
+        {
+            columns = std::move(*statement.columns);
+        }
+
+        return Plan{
+            .node =
+                InsertNode{
+                    .tableName = std::move(statement.tableName),
+                    .columns = std::move(columns),
+                    .values = std::move(statement.values),
+                },
+        };
+    }
+
     absl::StatusOr<Plan> Planner::Build(Statement statement)
     {
         if (auto create = std::get_if<CreateTableStatement>(&statement))
         {
             return BuildCreateTable(std::move(*create));
+        }
+
+        if (auto insert = std::get_if<InsertStatement>(&statement))
+        {
+            return BuildInsert(std::move(*insert));
         }
 
         return absl::UnimplementedError("planner: statement is not supported yet");
