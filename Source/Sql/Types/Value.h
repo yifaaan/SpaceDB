@@ -4,6 +4,7 @@
 #include <string>
 #include <utility>
 #include <variant>
+#include <vector>
 
 namespace spacedb
 {
@@ -46,4 +47,6 @@ namespace spacedb
     private:
         Storage data_;
     };
+
+    using Row = std::vector<Value>;
 } // namespace spacedb
