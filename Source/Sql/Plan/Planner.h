@@ -16,6 +16,7 @@ namespace spacedb
     private:
         static Plan BuildCreateTable(CreateTableStatement statement);
         static Plan BuildInsert(InsertStatement statement);
+        static Plan BuildScan(SelectStatement statement);
 
         static Value BuildValue(Expression expression);
     };

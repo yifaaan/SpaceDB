@@ -83,4 +83,20 @@ namespace spacedb
 
         CHECK(insert.columns.empty());
     }
+
+    TEST_CASE("planner builds sequential scan plan")
+    {
+        Parser parser("SELECT * FROM users;");
+
+        auto statement = parser.Parse();
+        REQUIRE(statement.ok());
+
+        auto plan = Planner::Build(std::move(*statement));
+        REQUIRE(plan.ok());
+        REQUIRE(std::holds_alternative<ScanNode>(plan->node));
+
+        const auto& scan = std::get<ScanNode>(plan->node);
+
+        CHECK(scan.tableName == "users");
+    }
 } // namespace spacedb

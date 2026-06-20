@@ -23,7 +23,14 @@ namespace spacedb
         friend bool operator==(const InsertNode&, const InsertNode&) = default;
     };
 
-    using PlanNode = std::variant<CreateTableNode, InsertNode>;
+    struct ScanNode
+    {
+        std::string tableName;
+
+        friend bool operator==(const ScanNode&, const ScanNode&) = default;
+    };
+
+    using PlanNode = std::variant<CreateTableNode, InsertNode, ScanNode>;
 
     struct Plan
     {

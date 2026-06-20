@@ -86,6 +86,16 @@ namespace spacedb
         };
     }
 
+    Plan Planner::BuildScan(SelectStatement statement)
+    {
+        return Plan{
+            .node =
+                ScanNode{
+                    .tableName = std::move(statement.tableName),
+                },
+        };
+    }
+
     absl::StatusOr<Plan> Planner::Build(Statement statement)
     {
         if (auto create = std::get_if<CreateTableStatement>(&statement))
@@ -98,6 +108,11 @@ namespace spacedb
             return BuildInsert(std::move(*insert));
         }
 
-        return absl::UnimplementedError("planner: statement is not supported yet");
+        if (auto select = std::get_if<SelectStatement>(&statement))
+        {
+            return BuildScan(std::move(*select));
+        }
+
+        return absl::InternalError("planner: statement variant has no active value");
     }
 } // namespace spacedb
