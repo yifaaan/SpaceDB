@@ -1,31 +1,19 @@
-# CMake and compiler output
+# Go build and test output
 /build/
-/CMakeUserPresets.json
-/compile_commands.json
+/bin/
+*.test
+*.out
+coverage.txt
 
-# vcpkg manifest output
-/vcpkg_installed/
-
-# Visual Studio and IDE state
-/.vs/
-*.suo
-*.user
-*.VC.db
-
-# Generated logs and crash artifacts
+# Local editor and tool state
+/.vscode/
+/.claude/
 *.log
 *.dmp
-
-# Rust reference build output
-/sqldb-rs/target/
-
-# Local tooling and operating-system files
 .DS_Store
 Thumbs.db
 
-.github/
-build/
-sqldb-rs
-AGENTS.md
-Docs/
-.vscode/
+# Read-only Rust reference
+/sqldb-rs/
+/Docs
+/AGENTS.md
