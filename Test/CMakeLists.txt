@@ -73,3 +73,27 @@ target_link_libraries(SpaceDBResultSetTest
 )
 
 catch_discover_tests(SpaceDBResultSetTest)
+
+add_executable(SpaceDBExecutorTest
+    Sql/Executor/ExecutorTest.cpp
+)
+
+target_link_libraries(SpaceDBExecutorTest
+    PRIVATE
+        SpaceDB::SpaceDB
+        Catch2::Catch2WithMain
+)
+
+catch_discover_tests(SpaceDBExecutorTest)
+
+add_executable(SpaceDBSessionTest
+    Sql/Engine/SessionTest.cpp
+)
+
+target_link_libraries(SpaceDBSessionTest
+    PRIVATE
+        SpaceDB::SpaceDB
+        Catch2::Catch2WithMain
+)
+
+catch_discover_tests(SpaceDBSessionTest)
