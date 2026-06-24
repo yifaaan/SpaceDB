@@ -23,7 +23,7 @@ const (
 
 type Expression struct {
 	Kind  ExpressionKind
-	Value any
+	Value any // nil/bool/int64/float64/string
 }
 
 func NullExpression() Expression {
