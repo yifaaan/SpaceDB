@@ -9,23 +9,31 @@ import (
 
 type Lexer struct {
 	input  string
-	offset int
+	offset int // 当前扫描位置（字节偏移）
 }
 
 func New(input string) *Lexer {
 	return &Lexer{input: input}
 }
 
+// Lex 一次性切出输入的全部 Token（含 EndOfInput），出错立即返回
 func Lex(input string) ([]Token, error) {
 	return New(input).TokenizeAll()
 }
 
+// Next 扫描并返回下一个 Token。
 func (l *Lexer) Next() (Token, error) {
+	// 跳过空白
 	l.skipWhitespace()
 	if l.atEnd() {
 		return Token{Kind: EndOfInput, Offset: l.offset}, nil
 	}
 
+	// 根据当前字符决定：
+	// 单引号 → 字符串
+	// 数字 → 数字
+	// 字母/下划线 → 标识符或关键字
+	// 其余 → 符号。
 	switch {
 	case l.peek() == '\'':
 		return l.scanString()
@@ -38,6 +46,7 @@ func (l *Lexer) Next() (Token, error) {
 	}
 }
 
+// TokenizeAll 循环调用 Next 直到输入结束，返回完整的 Token 列表
 func (l *Lexer) TokenizeAll() ([]Token, error) {
 	tokens := make([]Token, 0, 8)
 	for {
@@ -63,36 +72,44 @@ func (l *Lexer) peek() byte {
 	return l.input[l.offset]
 }
 
+// advance 消费并返回当前字符，把偏移向前推进一位
 func (l *Lexer) advance() byte {
 	value := l.input[l.offset]
 	l.offset++
 	return value
 }
 
+// skipWhitespace 跳过空白字符
 func (l *Lexer) skipWhitespace() {
 	remaining := l.input[l.offset:]
 	trimmed := strings.TrimLeft(remaining, " \t\r\n\f\v")
 	l.offset += len(remaining) - len(trimmed)
 }
 
+// scanIdentifier 扫描标识符或关键字
 func (l *Lexer) scanIdentifier() Token {
 	begin := l.offset
+	// 首字符为字母或下划线，后续允许字母、数字、下划线；
 	for !l.atEnd() && isIdentifierPart(l.peek()) {
 		l.offset++
 	}
 	text := l.input[begin:l.offset]
+	// 匹配关键字表
 	if keyword, ok := KeywordFromIdentifier(text); ok {
 		return Token{Kind: KeywordKind, Keyword: keyword, Offset: begin}
 	}
+	// 小写化的标识符
 	return Token{Kind: Identifier, Value: strings.ToLower(text), Offset: begin}
 }
 
+// scanNumber 扫描数字字面量
 func (l *Lexer) scanNumber() (Token, error) {
 	begin := l.offset
 	for !l.atEnd() && isDigit(l.peek()) {
 		l.offset++
 	}
 
+	// 小数点后必须还有数字，否则是非法浮点（如 "1."）
 	isFloat := !l.atEnd() && l.peek() == '.'
 	if isFloat {
 		l.offset++
@@ -123,9 +140,10 @@ func (l *Lexer) scanNumber() (Token, error) {
 	return Token{Kind: Number, Value: value, Offset: begin}, nil
 }
 
+// scanString 扫描单引号字符串字面量。不支持转义：遇到下一个单引号即结束，
 func (l *Lexer) scanString() (Token, error) {
 	begin := l.offset
-	l.advance()
+	l.advance() // 跳过开头的单引号
 
 	relativeEnd := strings.IndexByte(l.input[l.offset:], '\'')
 	if relativeEnd < 0 {
@@ -134,10 +152,11 @@ func (l *Lexer) scanString() (Token, error) {
 	}
 
 	valueStart := l.offset
-	l.offset += relativeEnd + 1
+	l.offset += relativeEnd + 1 // 越过结尾单引号，指向字符串内容之后
 	return Token{Kind: String, Value: l.input[valueStart : l.offset-1], Offset: begin}, nil
 }
 
+// scanSymbol 扫描单字符符号（括号、逗号、分号、四则运算符）
 func (l *Lexer) scanSymbol() (Token, error) {
 	begin := l.offset
 	var kind Kind

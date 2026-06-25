@@ -9,8 +9,8 @@ import (
 
 type Parser struct {
 	input  string
-	tokens []lexer.Token
-	index  int
+	tokens []lexer.Token // 词法分析结果
+	index  int           // 当前 Token 下标
 }
 
 func New(input string) *Parser {
@@ -21,6 +21,7 @@ func Parse(input string) (Statement, error) {
 	return New(input).Parse()
 }
 
+// Parse 完成一次完整的解析，分四步：
 func (p *Parser) Parse() (Statement, error) {
 	tokens, err := lexer.Lex(p.input)
 	if err != nil {
@@ -42,6 +43,7 @@ func (p *Parser) Parse() (Statement, error) {
 	return statement, nil
 }
 
+// peek 返回当前 Token，只读不推进
 func (p *Parser) peek() lexer.Token {
 	return p.tokens[p.index]
 }
@@ -54,6 +56,7 @@ func (p *Parser) next() lexer.Token {
 	return token
 }
 
+// expect 消费下一个 Token 并断言其种类匹配，不匹配则返回带位置的错误。
 func (p *Parser) expect(kind lexer.Kind) error {
 	token := p.next()
 	if token.Kind != kind {
@@ -99,6 +102,7 @@ func (p *Parser) parseStatement() (Statement, error) {
 	}
 }
 
+// parseSelect 解析 SELECT 语句
 func (p *Parser) parseSelect() (Statement, error) {
 	if err := p.expectKeyword(lexer.KeywordSelect); err != nil {
 		return nil, err
@@ -116,6 +120,11 @@ func (p *Parser) parseSelect() (Statement, error) {
 	return SelectStatement{TableName: tableName}, nil
 }
 
+// parseCreateTable 解析 CREATE TABLE：
+//
+//	CREATE TABLE <表名> ( <列> [, <列> ...] )
+//
+// 列之间用逗号分隔，最后一列之后要求右括号。
 func (p *Parser) parseCreateTable() (Statement, error) {
 	if err := p.expectKeyword(lexer.KeywordCreate); err != nil {
 		return nil, err
@@ -151,6 +160,12 @@ func (p *Parser) parseCreateTable() (Statement, error) {
 	return CreateTableStatement{Name: tableName, Columns: columns}, nil
 }
 
+// parseInsert 解析 INSERT 语句：
+//
+//	INSERT INTO <表名> [ (列1, 列2 ...) ] VALUES (值...), (值...) ...
+//
+// 可选的列列表用 nil / 非 nil 区分；
+// VALUES 后面允许一组或多组值，每组值是一行、以逗号分隔。
 func (p *Parser) parseInsert() (Statement, error) {
 	if err := p.expectKeyword(lexer.KeywordInsert); err != nil {
 		return nil, err
@@ -163,6 +178,7 @@ func (p *Parser) parseInsert() (Statement, error) {
 		return nil, err
 	}
 
+	// 可选的显式列列表：insert into t (a, b) values ...
 	var columns []string
 	if p.peek().Kind == lexer.OpenParen {
 		if err := p.expect(lexer.OpenParen); err != nil {
@@ -188,6 +204,7 @@ func (p *Parser) parseInsert() (Statement, error) {
 		}
 	}
 
+	// VALUES 之后是一组或多组括号包裹的值
 	if err := p.expectKeyword(lexer.KeywordValues); err != nil {
 		return nil, err
 	}
@@ -225,6 +242,8 @@ func (p *Parser) parseInsert() (Statement, error) {
 	return InsertStatement{TableName: tableName, Columns: columns, Values: values}, nil
 }
 
+// parseColumn 解析一列：<列名> <类型> [约束 ...]。
+// 约束是 NULL / NOT NULL / DEFAULT <常量表达式> 的任意组合，循环解析直到遇到非关键字
 func (p *Parser) parseColumn() (Column, error) {
 	name, err := p.expectIdentifier()
 	if err != nil {
@@ -239,6 +258,7 @@ func (p *Parser) parseColumn() (Column, error) {
 		return Column{}, fmt.Errorf("parser: unexpected column data type '%s' at %s", token.Keyword, lexer.DescribePosition(token.Offset))
 	}
 
+	// 约束循环：NULL → 可空；NOT NULL → 不可空；DEFAULT expr → 默认值
 	column := Column{Name: name, DataType: dataType}
 	for p.peek().Kind == lexer.KeywordKind {
 		next := p.peek()
@@ -268,6 +288,9 @@ func (p *Parser) parseColumn() (Column, error) {
 	return column, nil
 }
 
+// parseExpression 解析常量表达式，目前支持四类字面量：
+// 字符串、数字（词法阶段已区分 int64 / float64）、TRUE / FALSE、NULL。
+// 其余 Token 一律报错
 func (p *Parser) parseExpression() (Expression, error) {
 	token := p.next()
 	switch token.Kind {
