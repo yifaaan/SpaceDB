@@ -1,6 +1,7 @@
 package parser
 
 import (
+	"spacedb/types"
 	"strings"
 	"testing"
 )
@@ -93,7 +94,7 @@ func TestParserDataTypeAliases(t *testing.T) {
 		t.Fatal(err)
 	}
 	columns := statement.(CreateTableStatement).Columns
-	want := []DataType{Integer, Boolean, Float, String}
+	want := []types.DataType{types.Integer, types.Boolean, types.Float, types.String}
 	for i := range want {
 		if columns[i].DataType != want[i] {
 			t.Errorf("column %d type = %v, want %v", i, columns[i].DataType, want[i])
