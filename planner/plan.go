@@ -18,6 +18,15 @@ type CreateTableNode struct {
 
 func (CreateTableNode) node() {}
 
+// InsertNode 表示 INSERT INTO ... VALUES ... 的执行节点
+type InsertNode struct {
+	TableName string
+	Columns   []string
+	Values    [][]parser.Expression
+}
+
+func (InsertNode) node() {}
+
 // Plan 一个完整的执行计划
 // 当前一个 SQL 语句对应一个根节点
 type Plan struct {
@@ -36,6 +45,20 @@ func Build(stmt parser.Statement) (Plan, error) {
 			return Plan{}, fmt.Errorf("planner: building create-table plan: %w", err)
 		}
 		return Plan{Node: CreateTableNode{Schema: table}}, nil
+	case parser.InsertStatement:
+		columns := stmt.Columns
+
+		if columns == nil {
+			columns = []string{}
+		}
+
+		return Plan{
+			Node: InsertNode{
+				TableName: stmt.TableName,
+				Columns:   columns,
+				Values:    stmt.Values,
+			},
+		}, nil
 	default:
 		return Plan{}, fmt.Errorf(
 			"planner: statement type %T is not implemented",
