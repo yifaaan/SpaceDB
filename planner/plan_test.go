@@ -48,14 +48,23 @@ func TestBuildCreateTablePlan(t *testing.T) {
 	}
 }
 
-func TestBuildRejectsUnimplementedStatement(t *testing.T) {
-	statement, err := parser.Parse("SELECT * FROM users;")
+func TestBuildScanPlan(t *testing.T) {
+	stmt, err := parser.Parse("SELECT * FROM users;")
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	_, err = Build(statement)
-	if err == nil {
-		t.Fatal("Build succeeded for an unsupported statement")
+	plan, err := Build(stmt)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	node, ok := plan.Node.(ScanNode)
+	if !ok {
+		t.Fatalf("node = %T, want ScanNode", plan.Node)
+	}
+
+	if node.TableName != "users" {
+		t.Fatalf("table name = %q, want users", node.TableName)
 	}
 }

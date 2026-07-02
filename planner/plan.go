@@ -27,6 +27,15 @@ type InsertNode struct {
 
 func (InsertNode) node() {}
 
+// ScanNode 表示对一张表进行完整扫描的执行节点
+//
+// 当前 只支持 SELECT * FROM table，
+type ScanNode struct {
+	TableName string
+}
+
+func (ScanNode) node() {}
+
 // Plan 一个完整的执行计划
 // 当前一个 SQL 语句对应一个根节点
 type Plan struct {
@@ -35,8 +44,8 @@ type Plan struct {
 
 // Build 将 Parser AST 转换为执行计划。
 //
-// 现在只支持 CREATE TABLE；
-// INSERT 和 SELECT 会在后续步骤中加入。
+// 当前支持参考提交中的三种语句：
+// CREATE TABLE、INSERT INTO ... VALUES 和 SELECT * FROM。
 func Build(stmt parser.Statement) (Plan, error) {
 	switch stmt := stmt.(type) {
 	case parser.CreateTableStatement:
@@ -45,6 +54,7 @@ func Build(stmt parser.Statement) (Plan, error) {
 			return Plan{}, fmt.Errorf("planner: building create-table plan: %w", err)
 		}
 		return Plan{Node: CreateTableNode{Schema: table}}, nil
+
 	case parser.InsertStatement:
 		columns := stmt.Columns
 
@@ -59,6 +69,14 @@ func Build(stmt parser.Statement) (Plan, error) {
 				Values:    stmt.Values,
 			},
 		}, nil
+
+	case parser.SelectStatement:
+		return Plan{
+			Node: ScanNode{
+				TableName: stmt.TableName,
+			},
+		}, nil
+
 	default:
 		return Plan{}, fmt.Errorf(
 			"planner: statement type %T is not implemented",
