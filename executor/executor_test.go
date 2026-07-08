@@ -58,7 +58,7 @@ func TestBuildExecutor(t *testing.T) {
 func TestExecuteReturnsNotImplemented(t *testing.T) {
 	executor := ScanExecutor{TableName: "users"}
 
-	_, err := executor.Execute()
+	_, err := executor.Execute(nil)
 	if !errors.Is(err, ErrNotImplemented) {
 		t.Fatalf("error = %v, want ErrNotImplemented", err)
 	}

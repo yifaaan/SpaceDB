@@ -39,8 +39,10 @@ type RowsResult struct {
 func (RowsResult) resultSet() {}
 
 // Executor 执行计划节点的统一执行接口
+//
+// 不直接依赖具体 KV 存储，只通过 Transaction 使用事务能力
 type Executor interface {
-	Execute() (ResultSet, error)
+	Execute(txn Transaction) (ResultSet, error)
 }
 
 // CreateTableExecutor 对应 planner.CreateTableNode
@@ -48,7 +50,7 @@ type CreateTableExecutor struct {
 	Schema schema.Table
 }
 
-func (CreateTableExecutor) Execute() (ResultSet, error) {
+func (CreateTableExecutor) Execute(_ Transaction) (ResultSet, error) {
 	return nil, ErrNotImplemented
 }
 
@@ -59,7 +61,7 @@ type InsertExecutor struct {
 	Values    [][]parser.Expression
 }
 
-func (InsertExecutor) Execute() (ResultSet, error) {
+func (InsertExecutor) Execute(_ Transaction) (ResultSet, error) {
 	return nil, ErrNotImplemented
 }
 
@@ -68,7 +70,7 @@ type ScanExecutor struct {
 	TableName string
 }
 
-func (ScanExecutor) Execute() (ResultSet, error) {
+func (ScanExecutor) Execute(_ Transaction) (ResultSet, error) {
 	return nil, ErrNotImplemented
 }
 
