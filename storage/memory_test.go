@@ -2,6 +2,7 @@ package storage
 
 import (
 	"bytes"
+	"slices"
 	"testing"
 )
 
@@ -66,5 +67,51 @@ func TestMemoryEngineSupportsEmptyKeyAndValue(t *testing.T) {
 	}
 	if value == nil || len(value) != 0 {
 		t.Fatalf("empty value = %#v, want non-nil empty slice", value)
+	}
+}
+
+func TestMemoryEngineScan(t *testing.T) {
+	engine := NewMemoryEngine()
+
+	for _, key := range []string{"nnaes", "amhue", "meeae", "uujeh", "anehe"} {
+		if err := engine.Set([]byte(key), []byte("value")); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	var keys []string
+	for entry, err := range engine.Scan([]byte("a"), []byte("e")) {
+		if err != nil {
+			t.Fatal(err)
+		}
+		keys = append(keys, string(entry.Key))
+	}
+
+	want := []string{"amhue", "anehe"}
+	if !slices.Equal(keys, want) {
+		t.Fatalf("keys = %v, want %v", keys, want)
+	}
+}
+
+func TestMemoryEngineScanPrefix(t *testing.T) {
+	engine := NewMemoryEngine()
+
+	for _, key := range []string{"ccnaes", "camhue", "deeae", "canehe"} {
+		if err := engine.Set([]byte(key), []byte("value")); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	var keys []string
+	for entry, err := range engine.ScanPrefix([]byte("ca")) {
+		if err != nil {
+			t.Fatal(err)
+		}
+		keys = append(keys, string(entry.Key))
+	}
+
+	want := []string{"camhue", "canehe"}
+	if !slices.Equal(keys, want) {
+		t.Fatalf("keys = %v, want %v", keys, want)
 	}
 }
