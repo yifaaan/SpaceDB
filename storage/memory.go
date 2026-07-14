@@ -40,10 +40,13 @@ func (m *MemoryEngine) Delete(key []byte) error {
 	return nil
 }
 
-// Scan 返回 [start, end) 范围内的记录。
-// nil start 表示没有下界，nil end 表示没有上界。
-func (me *MemoryEngine) Scan(start, end []byte) iter.Seq2[Entry, error] {
+func (me *MemoryEngine) scan(start, end []byte, reverse bool) iter.Seq2[Entry, error] {
 	return func(yield func(Entry, error) bool) {
+		if me == nil {
+			yield(Entry{}, ErrNilMemoryEngine)
+			return
+		}
+
 		entries := make([]Entry, 0, len(me.data))
 
 		for k, v := range me.data {
@@ -52,17 +55,23 @@ func (me *MemoryEngine) Scan(start, end []byte) iter.Seq2[Entry, error] {
 			if start != nil && bytes.Compare(kBytes, start) < 0 {
 				continue
 			}
-
 			if end != nil && bytes.Compare(kBytes, end) >= 0 {
 				continue
 			}
 
-			entries = append(entries, Entry{Key: kBytes, Value: bytes.Clone(v)})
+			entries = append(entries, Entry{
+				Key:   bytes.Clone(kBytes),
+				Value: bytes.Clone(v),
+			})
 		}
 
 		slices.SortFunc(entries, func(a, b Entry) int {
 			return bytes.Compare(a.Key, b.Key)
 		})
+
+		if reverse {
+			slices.Reverse(entries)
+		}
 
 		for _, entry := range entries {
 			if !yield(entry, nil) {
@@ -72,9 +81,26 @@ func (me *MemoryEngine) Scan(start, end []byte) iter.Seq2[Entry, error] {
 	}
 }
 
+// Scan 返回 [start, end) 范围内的记录。
+// nil start 表示没有下界，nil end 表示没有上界。
+func (me *MemoryEngine) Scan(start, end []byte) iter.Seq2[Entry, error] {
+	return me.scan(start, end, false)
+}
+
+func (me *MemoryEngine) ScanReverse(start, end []byte) iter.Seq2[Entry, error] {
+	return me.scan(start, end, true)
+}
+
+// ScanPrefix 返回所有以 prefix 开头的记录。
 func (me *MemoryEngine) ScanPrefix(prefix []byte) iter.Seq2[Entry, error] {
 	return me.Scan(prefix, prefixEnd(prefix))
 }
+
+func (me *MemoryEngine) ScanPrefixReverse(prefix []byte) iter.Seq2[Entry, error] {
+	return me.ScanReverse(prefix, prefixEnd(prefix))
+}
+
+var _ Engine = (*MemoryEngine)(nil)
 
 // prefixEnd 计算所有指定前缀 key 的排除上界
 //
@@ -96,5 +122,3 @@ func prefixEnd(prefix []byte) []byte {
 	}
 	return nil
 }
-
-var _ Engine = (*MemoryEngine)(nil)

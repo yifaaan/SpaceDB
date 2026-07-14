@@ -115,3 +115,55 @@ func TestMemoryEngineScanPrefix(t *testing.T) {
 		t.Fatalf("keys = %v, want %v", keys, want)
 	}
 }
+
+func TestMemoryEngineScanReverse(t *testing.T) {
+	engine := NewMemoryEngine()
+
+	for _, key := range []string{
+		"nnaes",
+		"amhue",
+		"meeae",
+		"uujeh",
+		"anehe",
+	} {
+		if err := engine.Set([]byte(key), []byte("value")); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	var keys []string
+	for entry, err := range engine.ScanReverse([]byte("b"), []byte("z")) {
+		if err != nil {
+			t.Fatal(err)
+		}
+		keys = append(keys, string(entry.Key))
+	}
+
+	want := []string{"uujeh", "nnaes", "meeae"}
+	if !slices.Equal(keys, want) {
+		t.Fatalf("keys = %v, want %v", keys, want)
+	}
+}
+
+func TestMemoryEngineScanPrefixReverse(t *testing.T) {
+	engine := NewMemoryEngine()
+
+	for _, key := range []string{"camhue", "canehe", "cbtest", "aanehe"} {
+		if err := engine.Set([]byte(key), []byte("value")); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	var keys []string
+	for entry, err := range engine.ScanPrefixReverse([]byte("ca")) {
+		if err != nil {
+			t.Fatal(err)
+		}
+		keys = append(keys, string(entry.Key))
+	}
+
+	want := []string{"canehe", "camhue"}
+	if !slices.Equal(keys, want) {
+		t.Fatalf("keys = %v, want %v", keys, want)
+	}
+}
