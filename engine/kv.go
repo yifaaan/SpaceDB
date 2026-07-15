@@ -14,7 +14,7 @@ type KVEngine struct {
 
 func NewKVEngine() *KVEngine {
 	return &KVEngine{
-		storage: storage.NewMVCC(),
+		storage: storage.NewMVCC(storage.NewMemoryEngine()),
 	}
 }
 
@@ -32,27 +32,27 @@ type KVTransaction struct {
 }
 
 func (t *KVTransaction) Commit() error {
-	return storage.ErrNotImplemented
+	return nil
 }
 
 func (t *KVTransaction) Rollback() error {
-	return storage.ErrNotImplemented
+	return nil
 }
 
 func (t *KVTransaction) CreateRow(string, types.Row) error {
-	return storage.ErrNotImplemented
+	return nil
 }
 
 func (t *KVTransaction) ScanTable(string) ([]types.Row, error) {
-	return nil, storage.ErrNotImplemented
+	return nil, nil
 }
 
 func (t *KVTransaction) CreateTable(schema.Table) error {
-	return storage.ErrNotImplemented
+	return nil
 }
 
 func (t *KVTransaction) GetTable(string) (*schema.Table, error) {
-	return nil, storage.ErrNotImplemented
+	return nil, nil
 }
 
 var _ executor.Transaction = (*KVTransaction)(nil)

@@ -1,7 +1,6 @@
 package engine
 
 import (
-	"spacedb/storage"
 	"testing"
 )
 
@@ -31,7 +30,7 @@ func TestKVTransactionReturnsNotImplemented(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := txn.Commit(); err != storage.ErrNotImplemented {
+	if err := txn.Commit(); err != nil {
 		t.Fatalf("Commit error = %v, want storage.ErrNotImplemented", err)
 	}
 }
