@@ -50,8 +50,12 @@ type CreateTableExecutor struct {
 	Schema schema.Table
 }
 
-func (CreateTableExecutor) Execute(_ Transaction) (ResultSet, error) {
-	return nil, ErrNotImplemented
+func (cte CreateTableExecutor) Execute(txn Transaction) (ResultSet, error) {
+	if err := txn.CreateTable(cte.Schema); err != nil {
+		return nil, err
+	}
+
+	return CreateTableResult{cte.Schema.Name}, nil
 }
 
 // InsertExecutor 对应 planner.InsertNode
