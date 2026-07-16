@@ -6,11 +6,11 @@ import (
 	"spacedb/types"
 )
 
-// valueFromExpression 将 Parser AST 中的常量表达式转化为 types 包中运行时值 Value
+// ValueFromExpression 将 Parser AST 中的常量表达式转化为 types 包中运行时值 Value
 //
 // Parser 只描述 SQL 语法，types.Value 只描述运行时数据，
 // Planner 负责连接这两个层次。
-func valueFromExpression(expression parser.Expression) (types.Value, error) {
+func ValueFromExpression(expression parser.Expression) (types.Value, error) {
 	switch expression.Kind {
 	case parser.Null:
 		return types.Value{Kind: types.ValueNull}, nil

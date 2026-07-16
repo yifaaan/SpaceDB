@@ -25,7 +25,7 @@ func tableFromCreateStatement(stmt parser.CreateTableStatement) (schema.Table, e
 
 		switch {
 		case astColumn.DefaultValue != nil:
-			v, err := valueFromExpression(*astColumn.DefaultValue)
+			v, err := ValueFromExpression(*astColumn.DefaultValue)
 			if err != nil {
 				return schema.Table{}, fmt.Errorf("planner: converting default for column %q: %w", astColumn.Name, err)
 			}

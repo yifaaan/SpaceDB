@@ -26,7 +26,7 @@ func TestValueFromExpression(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := valueFromExpression(tt.expression)
+			got, err := ValueFromExpression(tt.expression)
 			if err != nil {
 				t.Fatal(err)
 			}

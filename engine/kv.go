@@ -43,8 +43,54 @@ func (t *KVTransaction) Rollback() error {
 	return nil
 }
 
-func (t *KVTransaction) CreateRow(string, types.Row) error {
-	return nil
+func (t *KVTransaction) CreateRow(tableName string, row types.Row) error {
+	table, err := t.GetTable(tableName)
+	if err != nil {
+		return fmt.Errorf("engine: loading table %q: %w", tableName, err)
+	}
+	if table == nil {
+		return fmt.Errorf("engine: table %q does not exist", tableName)
+	}
+
+	if len(row) == 0 {
+		return fmt.Errorf("engine: cannot insert an empty row")
+	}
+
+	if len(row) != len(table.Columns) {
+		return fmt.Errorf("engine: row length mismatch: got %d, columns %d", len(row), len(table.Columns))
+	}
+
+	// 存储层再次校验类型
+	for i, column := range table.Columns {
+		v := row[i]
+		if v.Kind == types.ValueNull {
+			if !column.Nullable {
+				return fmt.Errorf("engine: column %q cannot be NULL", column.Name)
+			}
+			continue
+		}
+
+		actualType, ok := v.DataType()
+		if !ok {
+			return fmt.Errorf("engine: invalid value kind %d for column %q", v.Kind, column.Name)
+		}
+		if actualType != column.DataType {
+			return fmt.Errorf("engine: column %q type mismatch: want %d, got %d", column.Name, column.DataType, actualType)
+		}
+	}
+
+	key, err := rowKey(tableName, row[0])
+	if err != nil {
+		return err
+	}
+
+	var json = jsoniter.ConfigCompatibleWithStandardLibrary
+	encoded, err := json.Marshal(row)
+	if err != nil {
+		return fmt.Errorf("engine: encoding row for table %q: %w", tableName, err)
+	}
+
+	return t.txn.Set(key, encoded)
 }
 
 func (t *KVTransaction) ScanTable(string) ([]types.Row, error) {
@@ -116,4 +162,43 @@ func tableKey(tableName string) ([]byte, error) {
 		return nil, fmt.Errorf("engine: encoding table name %q: %w", tableName, err)
 	}
 	return encoded, nil
+}
+
+// rowPrefixKey 返回某张表的行数据前缀
+//
+// 表结构使用：
+//
+//	"users/"
+//
+// 行数据使用：
+//
+//	"users/row/" + 主键编码
+func rowPrefixKey(tableName string) ([]byte, error) {
+	var json = jsoniter.ConfigCompatibleWithStandardLibrary
+	prefix := tableName + "/row/"
+
+	encoded, err := json.Marshal(prefix)
+	if err != nil {
+		return nil, fmt.Errorf("engine: encoding row prefix for table %q: %w", tableName, err)
+	}
+	return encoded, nil
+}
+
+// rowKey 使用表名、row 前缀和第一列值生成行键（TODO:将第一列值换成主键）
+func rowKey(tableName string, primary types.Value) ([]byte, error) {
+	prefix, err := rowPrefixKey(tableName)
+	if err != nil {
+		return nil, err
+	}
+
+	var json = jsoniter.ConfigCompatibleWithStandardLibrary
+	encodedPrimary, err := json.Marshal(primary)
+	if err != nil {
+		return nil, fmt.Errorf("engine: encoding primary value for table %q: %w", tableName, err)
+	}
+
+	key := make([]byte, 0, len(prefix)+len(encodedPrimary))
+	key = append(key, prefix...)
+	key = append(key, encodedPrimary...)
+	return key, nil
 }
