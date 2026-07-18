@@ -6,7 +6,6 @@ import (
 	"spacedb/schema"
 	"spacedb/storage"
 	"spacedb/types"
-	"strings"
 
 	jsoniter "github.com/json-iterator/go"
 )
@@ -93,8 +92,29 @@ func (t *KVTransaction) CreateRow(tableName string, row types.Row) error {
 	return t.txn.Set(key, encoded)
 }
 
-func (t *KVTransaction) ScanTable(string) ([]types.Row, error) {
-	return nil, nil
+func (t *KVTransaction) ScanTable(tableName string) ([]types.Row, error) {
+	prefix, err := rowPrefixKey(tableName)
+	if err != nil {
+		return nil, err
+	}
+
+	entries, err := t.txn.ScanPrefix(prefix)
+	if err != nil {
+		return nil, fmt.Errorf("engine: scanning rows for table %q: %w", tableName, err)
+	}
+
+	rows := make([]types.Row, 0, len(entries))
+	var json = jsoniter.ConfigCompatibleWithStandardLibrary
+
+	for i, e := range entries {
+		var row types.Row
+		if err := json.Unmarshal(e.Value, &row); err != nil {
+			return nil, fmt.Errorf("engine: decoding row %d from table %q: %w", i+1, tableName, err)
+		}
+		rows = append(rows, row)
+	}
+
+	return rows, nil
 }
 
 func (t *KVTransaction) CreateTable(table schema.Table) error {
@@ -151,12 +171,11 @@ func (t *KVTransaction) GetTable(tableName string) (*schema.Table, error) {
 var _ executor.Transaction = (*KVTransaction)(nil)
 var _ Engine = (*KVEngine)(nil)
 
-// tableKey 为表结构生成专用的 KV key,
+// tableKey 为表结构元数据生成的 KV key,
 // 使用 table/ 前缀，避免和行数据 key 冲突
 func tableKey(tableName string) ([]byte, error) {
 	var json = jsoniter.ConfigCompatibleWithStandardLibrary
-	key := strings.Clone(tableName)
-	key += "/"
+	key := tableName + "/"
 	encoded, err := json.Marshal(key)
 	if err != nil {
 		return nil, fmt.Errorf("engine: encoding table name %q: %w", tableName, err)
@@ -164,7 +183,7 @@ func tableKey(tableName string) ([]byte, error) {
 	return encoded, nil
 }
 
-// rowPrefixKey 返回某张表的行数据前缀
+// rowPrefixKey 返回某张表的行数据前缀 "users/row/"，用来过滤某张表的所有行
 //
 // 表结构使用：
 //
@@ -184,6 +203,7 @@ func rowPrefixKey(tableName string) ([]byte, error) {
 	return encoded, nil
 }
 
+// rowKey 定位具体某一行数据的 key: "users/row/abc"
 // rowKey 使用表名、row 前缀和第一列值生成行键（TODO:将第一列值换成主键）
 func rowKey(tableName string, primary types.Value) ([]byte, error) {
 	prefix, err := rowPrefixKey(tableName)

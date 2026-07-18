@@ -1,15 +1,12 @@
 package executor
 
 import (
-	"errors"
 	"fmt"
 	"spacedb/parser"
 	"spacedb/planner"
 	"spacedb/schema"
 	"spacedb/types"
 )
-
-var ErrNotImplemented = errors.New("executor: execution not implemented")
 
 // ResultSet 所有 SQL 执行结果的接口
 type ResultSet interface {
@@ -50,12 +47,12 @@ type CreateTableExecutor struct {
 	Schema schema.Table
 }
 
-func (cte CreateTableExecutor) Execute(txn Transaction) (ResultSet, error) {
-	if err := txn.CreateTable(cte.Schema); err != nil {
+func (c CreateTableExecutor) Execute(txn Transaction) (ResultSet, error) {
+	if err := txn.CreateTable(c.Schema); err != nil {
 		return nil, err
 	}
 
-	return CreateTableResult{cte.Schema.Name}, nil
+	return CreateTableResult{c.Schema.Name}, nil
 }
 
 // InsertExecutor 对应 planner.InsertNode
@@ -65,18 +62,18 @@ type InsertExecutor struct {
 	Values    [][]parser.Expression
 }
 
-func (ie InsertExecutor) Execute(txn Transaction) (ResultSet, error) {
+func (i InsertExecutor) Execute(txn Transaction) (ResultSet, error) {
 
-	table, err := txn.GetTable(ie.TableName)
+	table, err := txn.GetTable(i.TableName)
 	if err != nil {
-		return nil, fmt.Errorf("executor: loading table %q: %w", ie.TableName, err)
+		return nil, fmt.Errorf("executor: loading table %q: %w", i.TableName, err)
 	}
 	if table == nil {
-		return nil, fmt.Errorf("executor: table %q does not exist", ie.TableName)
+		return nil, fmt.Errorf("executor: table %q does not exist", i.TableName)
 	}
 
 	inserted := 0
-	for rowIdx, exps := range ie.Values {
+	for rowIdx, exps := range i.Values {
 		// 把语法层表达式转换为运行时值
 		row := make(types.Row, len(exps))
 		for i, e := range exps {
@@ -88,11 +85,11 @@ func (ie InsertExecutor) Execute(txn Transaction) (ResultSet, error) {
 		}
 
 		// 将部分列转换成完整列顺序
-		fullRow, err := makeInsertRow(table, ie.Columns, row)
+		fullRow, err := makeInsertRow(table, i.Columns, row)
 		if err != nil {
 			return nil, fmt.Errorf("executor: preparing row %d: %w", rowIdx+1, err)
 		}
-		if err := txn.CreateRow(ie.TableName, fullRow); err != nil {
+		if err := txn.CreateRow(i.TableName, fullRow); err != nil {
 			return nil, fmt.Errorf("executor: inserting row %d: %w", rowIdx+1, err)
 		}
 		inserted++
@@ -106,8 +103,29 @@ type ScanExecutor struct {
 	TableName string
 }
 
-func (ScanExecutor) Execute(_ Transaction) (ResultSet, error) {
-	return nil, ErrNotImplemented
+func (s ScanExecutor) Execute(txn Transaction) (ResultSet, error) {
+	table, err := txn.GetTable(s.TableName)
+	if err != nil {
+		return nil, fmt.Errorf("executor: loading table %q: %w", s.TableName, err)
+	}
+	if table == nil {
+		return nil, fmt.Errorf("executor: table %q does not exist", s.TableName)
+	}
+
+	rows, err := txn.ScanTable(s.TableName)
+	if err != nil {
+		return nil, fmt.Errorf("executor: scanning table %q: %w", s.TableName, err)
+	}
+
+	columns := make([]string, 0, len(table.Columns))
+	for _, column := range table.Columns {
+		columns = append(columns, column.Name)
+	}
+
+	return RowsResult{
+		Columns: columns,
+		Rows:    rows,
+	}, nil
 }
 
 // Build 根据 plan 节点创建对应的 Executor
