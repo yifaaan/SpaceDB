@@ -1,7 +1,9 @@
 package engine
 
 import (
+	"encoding/binary"
 	"fmt"
+	"math"
 	"spacedb/executor"
 	"spacedb/schema"
 	"spacedb/storage"
@@ -10,14 +12,44 @@ import (
 	jsoniter "github.com/json-iterator/go"
 )
 
+const (
+	// keyNamespaceTable 表示这条 KV 保存的是表元数据
+	//
+	// 例如 users 表的元数据 key：
+	//
+	//	0x01 | "users"
+	keyNamespaceTable byte = 0x01
+
+	// keyNamespaceRow 表示这条 KV 保存的是表中的一行数据记录
+	//
+	// 例如 users 表的行前缀：
+	//
+	//	0x02 | "users" | 0x00
+	keyNamespaceRow byte = 0x02
+
+	// keySeparator 用来标记表名结束
+	keySeparator byte = 0x00
+)
+
+const (
+	// 这些字节是主键值的类型标记。
+	// 即使整数 1 和字符串 "1" 内容看起来相同，
+	// 最终生成的 key 也不会相同。
+	primaryKeyNull byte = iota
+	primaryKeyBoolean
+	primaryKeyInteger
+	primaryKeyFloat
+	primaryKeyString
+)
+
 // KVEngine 对 storage.MVCC底层存储 的 SQL Engine 封装。
 type KVEngine struct {
 	storage *storage.MVCC
 }
 
-func NewKVEngine() *KVEngine {
+func NewKVEngine(e storage.Engine) *KVEngine {
 	return &KVEngine{
-		storage: storage.NewMVCC(storage.NewMemoryEngine()),
+		storage: storage.NewMVCC(e),
 	}
 }
 
@@ -171,54 +203,119 @@ func (t *KVTransaction) GetTable(tableName string) (*schema.Table, error) {
 var _ executor.Transaction = (*KVTransaction)(nil)
 var _ Engine = (*KVEngine)(nil)
 
-// tableKey 为表结构元数据生成的 KV key,
-// 使用 table/ 前缀，避免和行数据 key 冲突
+// tableKey 生成表元数据的 KV key。
+//
+// 编码格式：
+//
+//	0x01 | tableName
 func tableKey(tableName string) ([]byte, error) {
-	var json = jsoniter.ConfigCompatibleWithStandardLibrary
-	key := tableName + "/"
-	encoded, err := json.Marshal(key)
-	if err != nil {
-		return nil, fmt.Errorf("engine: encoding table name %q: %w", tableName, err)
+	if tableName == "" {
+		return nil, fmt.Errorf("engine: table name cannot be empty")
 	}
-	return encoded, nil
+
+	key := make([]byte, 0, 1+len(tableName))
+	key = append(key, keyNamespaceTable)
+	key = append(key, tableName...)
+
+	return key, nil
 }
 
-// rowPrefixKey 返回某张表的行数据前缀 "users/row/"，用来过滤某张表的所有行
+// rowPrefixKey 生成某张表所有行共享的 key 前缀
 //
-// 表结构使用：
+// 编码格式：
 //
-//	"users/"
+//	0x02 | tableName | 0x00
 //
-// 行数据使用：
-//
-//	"users/row/" + 主键编码
+// ScanTable 使用这个结果执行 ScanPrefix
 func rowPrefixKey(tableName string) ([]byte, error) {
-	var json = jsoniter.ConfigCompatibleWithStandardLibrary
-	prefix := tableName + "/row/"
-
-	encoded, err := json.Marshal(prefix)
-	if err != nil {
-		return nil, fmt.Errorf("engine: encoding row prefix for table %q: %w", tableName, err)
+	if tableName == "" {
+		return nil, fmt.Errorf("engine: table name cannot be empty")
 	}
-	return encoded, nil
+
+	prefix := make([]byte, 0, 2+len(tableName))
+	prefix = append(prefix, keyNamespaceRow)
+	prefix = append(prefix, tableName...)
+	prefix = append(prefix, keySeparator)
+
+	return prefix, nil
 }
 
-// rowKey 定位具体某一行数据的 key: "users/row/abc"
-// rowKey 使用表名、row 前缀和第一列值生成行键（TODO:将第一列值换成主键）
+// rowKey 生成某一行的完整 KV key
+//
+// 编码格式：
+//
+//	0x02 | tableName | 0x00 | primaryKey
+//
+// 当前临时使用第一列作为 primaryKey
 func rowKey(tableName string, primary types.Value) ([]byte, error) {
 	prefix, err := rowPrefixKey(tableName)
 	if err != nil {
 		return nil, err
 	}
 
-	var json = jsoniter.ConfigCompatibleWithStandardLibrary
-	encodedPrimary, err := json.Marshal(primary)
+	encodedPrimary, err := encodePrimaryKey(primary)
 	if err != nil {
-		return nil, fmt.Errorf("engine: encoding primary value for table %q: %w", tableName, err)
+		return nil, fmt.Errorf(
+			"engine: encoding primary key for table %q: %w",
+			tableName,
+			err,
+		)
 	}
 
 	key := make([]byte, 0, len(prefix)+len(encodedPrimary))
 	key = append(key, prefix...)
 	key = append(key, encodedPrimary...)
+
 	return key, nil
+}
+
+// encodePrimaryKey 将运行时 Value 编码成可以放进 KV key 的字节
+func encodePrimaryKey(value types.Value) ([]byte, error) {
+	switch value.Kind {
+	case types.ValueNull:
+		return []byte{primaryKeyNull}, nil
+
+	case types.ValueBoolean:
+		encoded := []byte{primaryKeyBoolean, 0}
+		if value.Boolean {
+			encoded[1] += 1
+		}
+		return encoded, nil
+
+	case types.ValueInteger:
+		encoded := make([]byte, 1+8)
+
+		encoded[0] = primaryKeyInteger
+
+		//	负数 < 0 < 正数(负数转换成 uint64后会排到正数后面，所以需要将符号位反转)
+		ordered := uint64(value.Integer) ^ (1 << 63)
+
+		binary.BigEndian.PutUint64(encoded[1:], ordered)
+
+		return encoded, nil
+
+	case types.ValueFloat:
+		encoded := make([]byte, 1+8)
+		encoded[0] = primaryKeyFloat
+
+		bits := math.Float64bits(value.Float)
+
+		if bits&(uint64(1)<<63) != 0 {
+			bits = ^bits
+		} else {
+			bits ^= uint64(1) << 63
+		}
+
+		binary.BigEndian.PutUint64(encoded[1:], bits)
+		return encoded, nil
+
+	case types.ValueString:
+		encoded := make([]byte, 0, 1+len(value.String))
+		encoded = append(encoded, primaryKeyString)
+		encoded = append(encoded, value.String...)
+		return encoded, nil
+
+	default:
+		return nil, fmt.Errorf("unsupported value kind %d", value.Kind)
+	}
 }

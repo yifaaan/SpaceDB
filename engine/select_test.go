@@ -3,12 +3,13 @@ package engine
 import (
 	"slices"
 	"spacedb/executor"
+	"spacedb/storage"
 	"spacedb/types"
 	"testing"
 )
 
 func TestTestSessionSelectAll(t *testing.T) {
-	engine := NewKVEngine()
+	engine := NewKVEngine(storage.NewMemoryEngine())
 	session := NewSession(engine)
 
 	if _, err := session.Execute(`
@@ -63,7 +64,7 @@ func TestTestSessionSelectAll(t *testing.T) {
 }
 
 func TestSessionSelectMissingTable(t *testing.T) {
-	session := NewSession(NewKVEngine())
+	session := NewSession(NewKVEngine(storage.NewMemoryEngine()))
 
 	_, err := session.Execute("SELECT * FROM missing;")
 	if err == nil {

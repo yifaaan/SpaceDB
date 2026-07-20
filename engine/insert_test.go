@@ -4,10 +4,11 @@ import (
 	"testing"
 
 	"spacedb/executor"
+	"spacedb/storage"
 )
 
 func TestSessionInsert(t *testing.T) {
-	engine := NewKVEngine()
+	engine := NewKVEngine(storage.NewMemoryEngine())
 	session := NewSession(engine)
 
 	_, err := session.Execute(`
@@ -46,7 +47,7 @@ func TestSessionInsert(t *testing.T) {
 }
 
 func TestSessionInsertTypeMismatch(t *testing.T) {
-	session := NewSession(NewKVEngine())
+	session := NewSession(NewKVEngine(storage.NewMemoryEngine()))
 
 	if _, err := session.Execute("CREATE TABLE users (id INT NOT NULL);"); err != nil {
 		t.Fatal(err)
@@ -59,7 +60,7 @@ func TestSessionInsertTypeMismatch(t *testing.T) {
 }
 
 func TestSessionInsertMissingRequiredValue(t *testing.T) {
-	session := NewSession(NewKVEngine())
+	session := NewSession(NewKVEngine(storage.NewMemoryEngine()))
 
 	if _, err := session.Execute("CREATE TABLE users (id INT NOT NULL, name STRING NOT NULL);"); err != nil {
 		t.Fatal(err)

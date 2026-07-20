@@ -3,11 +3,12 @@ package engine
 import (
 	"errors"
 	"spacedb/executor"
+	"spacedb/storage"
 	"testing"
 )
 
 func TestSessionCreateTable(t *testing.T) {
-	engine := NewKVEngine()
+	engine := NewKVEngine(storage.NewMemoryEngine())
 	session := NewSession(engine)
 
 	result, err := session.Execute("CREATE TABLE users (id INT, name STRING);")
@@ -36,7 +37,7 @@ func TestSessionCreateTable(t *testing.T) {
 }
 
 func TestSessionCreateTablePersistsSchema(t *testing.T) {
-	engine := NewKVEngine()
+	engine := NewKVEngine(storage.NewMemoryEngine())
 	session := NewSession(engine)
 
 	if _, err := session.Execute("CREATE TABLE users (id INT, name STRING);"); err != nil {
