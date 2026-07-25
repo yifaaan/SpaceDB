@@ -2,13 +2,9 @@ package storage
 
 import (
 	"bytes"
-	"errors"
 	"iter"
 	"slices"
 )
-
-// ErrNilMemoryEngine 表示对 nil 内存引擎执行操作。
-var ErrNilMemoryEngine = errors.New("storage: nil memory engine")
 
 // MemoryEngine 使用 Go map 保存 KV 数据
 type MemoryEngine struct {
@@ -42,11 +38,6 @@ func (m *MemoryEngine) Delete(key []byte) error {
 
 func (me *MemoryEngine) scan(start, end []byte, reverse bool) iter.Seq2[Entry, error] {
 	return func(yield func(Entry, error) bool) {
-		if me == nil {
-			yield(Entry{}, ErrNilMemoryEngine)
-			return
-		}
-
 		entries := make([]Entry, 0, len(me.data))
 
 		for k, v := range me.data {

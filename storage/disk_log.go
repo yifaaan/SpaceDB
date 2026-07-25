@@ -88,8 +88,10 @@ func (d *diskLog) writeEntry(key []byte, value []byte, deleted bool) (diskLogPos
 	if _, err := writer.Write(key); err != nil {
 		return diskLogPosition{}, fmt.Errorf("storage: writing disk log key: %w", err)
 	}
-	if _, err := writer.Write(value); err != nil {
-		return diskLogPosition{}, fmt.Errorf("storage: writing disk log value: %w", err)
+	if !deleted {
+		if _, err := writer.Write(value); err != nil {
+			return diskLogPosition{}, fmt.Errorf("storage: writing disk log value: %w", err)
+		}
 	}
 
 	// flush
