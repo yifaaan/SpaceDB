@@ -2,12 +2,14 @@ package storage
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"iter"
-	"os"
 	"sync"
+	"time"
 
+	"github.com/gofrs/flock"
 	"github.com/google/btree"
 )
 
@@ -29,22 +31,45 @@ func lessDiskItem(a, b *diskItem) bool {
 
 // DiskEngine 是基于追加日志的磁盘 KV 引擎
 type DiskEngine struct {
-	mu     sync.RWMutex
-	keydir *btree.BTreeG[*diskItem]
-	log    *diskLog
+	mu       sync.RWMutex
+	keydir   *btree.BTreeG[*diskItem]
+	log      *diskLog
+	fileLock *flock.Flock
 }
 
 // NewDiskEngine 创建一个磁盘引擎
 func NewDiskEngine(name string) (*DiskEngine, error) {
-	file, err := os.OpenFile(name, os.O_CREATE|os.O_RDWR|os.O_APPEND, 0o600)
+	fileLock := flock.New(name + ".lock")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	locked, err := fileLock.TryLockContext(ctx, 100*time.Millisecond)
 	if err != nil {
-		return nil, fmt.Errorf("storage: opening disk log %q: %w", name, err)
+		return nil, fmt.Errorf("storage: locking %q: %w", name, err)
+	}
+	if !locked {
+		return nil, fmt.Errorf("storage: %q is locked by another process", name)
 	}
 
-	return &DiskEngine{
-		keydir: btree.NewG(400, lessDiskItem),
-		log:    &diskLog{file: file},
-	}, nil
+	log, err := newDisLog(name)
+	if err != nil {
+		_ = fileLock.Unlock()
+		return nil, err
+	}
+
+	engine := &DiskEngine{
+		keydir:   btree.NewG(400, lessDiskItem),
+		log:      log,
+		fileLock: fileLock,
+	}
+
+	if err := engine.rebuildKeydir(); err != nil {
+		_ = log.close()
+		_ = fileLock.Unlock()
+		return nil, fmt.Errorf("storage: rebuilding keydir from %q: %w", name, err)
+	}
+
+	return engine, nil
 }
 
 // Close 关闭磁盘日志文件
@@ -60,14 +85,14 @@ func (d *DiskEngine) Close() error {
 		return nil
 	}
 
-	err := d.log.file.Close()
+	err := d.log.close()
 	d.log = nil
 	d.keydir = nil
 
-	if err != nil {
-		return fmt.Errorf("storage: closing disk engine: %w", err)
-	}
-	return nil
+	unlockErr := d.fileLock.Unlock()
+	d.fileLock = nil
+
+	return errors.Join(err, unlockErr)
 }
 
 // Set 追加写入一条新记录，并更新内存索引
@@ -91,7 +116,7 @@ func (d *DiskEngine) Set(key, value []byte) error {
 
 	// 更新内存索引
 	d.keydir.ReplaceOrInsert(&diskItem{
-		key:         key,
+		key:         bytes.Clone(key),
 		logPosition: position,
 	})
 
@@ -113,9 +138,7 @@ func (d *DiskEngine) Get(key []byte) ([]byte, error) {
 		return nil, nil
 	}
 
-	position := item.logPosition
-
-	value, err := d.log.readValue(position.ValueOffset, position.ValueSize)
+	value, err := d.readLogValue(item.logPosition)
 	if err != nil {
 		return nil, fmt.Errorf("storage: getting key %q: %w", key, err)
 	}
@@ -149,6 +172,31 @@ func (d *DiskEngine) ensureOpen() error {
 		return ErrDiskEngineClosed
 	}
 	return nil
+}
+
+// readLogValue 根据整条日志记录的位置读取 value
+func (d *DiskEngine) readLogValue(position diskLogPosition) ([]byte, error) {
+	key, valueSize, err := d.log.readEntry(position.EntryOffset)
+	if err != nil {
+		return nil, err
+	}
+
+	if valueSize < 0 {
+		return nil, fmt.Errorf(
+			"storage: invalid indexed value size %d at offset %d",
+			valueSize,
+			position.EntryOffset,
+		)
+	}
+
+	entrySize := uint64(diskLogHeaderSize) + uint64(len(key)) + uint64(valueSize)
+	if entrySize != uint64(position.EntrySize) {
+		return nil, fmt.Errorf("storage: entry size mismatch at offset %d: index %d, log %d", position.EntryOffset, position.EntrySize, entrySize)
+	}
+
+	valueOffset := position.EntryOffset + int64(diskLogHeaderSize) + int64(len(key))
+
+	return d.log.readValue(valueOffset, uint32(valueSize))
 }
 
 // snapshotRange 从 B-tree 中复制指定范围的索引
@@ -229,7 +277,7 @@ func (d *DiskEngine) readScanItem(item diskItem) (Entry, error) {
 		return Entry{}, err
 	}
 
-	value, err := d.log.readValue(item.logPosition.ValueOffset, item.logPosition.ValueSize)
+	value, err := d.readLogValue(item.logPosition)
 	if err != nil {
 		return Entry{}, fmt.Errorf("storage: reading scanned key %q: %w", item.key, err)
 	}
@@ -280,3 +328,54 @@ func (d *DiskEngine) ScanPrefixReverse(prefix []byte) iter.Seq2[Entry, error] {
 }
 
 var _ Engine = (*DiskEngine)(nil)
+
+// rebuildKeydir 按日志写入顺序重建 B-tree
+func (d *DiskEngine) rebuildKeydir() error {
+	if err := d.ensureOpen(); err != nil {
+		return err
+	}
+
+	info, err := d.log.file.Stat()
+	if err != nil {
+		return fmt.Errorf("storage: reading disk log metadata: %w", err)
+	}
+
+	fileSize := info.Size()
+
+	for offset := int64(0); offset < fileSize; {
+		key, valueSize, err := d.log.readEntry(offset)
+		if err != nil {
+			return fmt.Errorf("storage: reading log record at offset %d: %w", offset, err)
+		}
+
+		var storedValueSize uint64
+		switch {
+		case valueSize == diskLogTombstoneSize:
+		case valueSize >= 0:
+			storedValueSize = uint64(valueSize)
+		default:
+			return fmt.Errorf("storage: invalid value size %d at offset %d", valueSize, offset)
+		}
+
+		entrySize := uint64(diskLogHeaderSize) + uint64(len(key)) + storedValueSize
+		if entrySize > maxDiskLogEntrySize || entrySize > uint64(fileSize-offset) {
+			return fmt.Errorf("storage: invalid log entry size %d at offset %d", entrySize, offset)
+		}
+
+		if valueSize == diskLogTombstoneSize {
+			d.keydir.Delete(&diskItem{key: key})
+		} else {
+			d.keydir.ReplaceOrInsert(&diskItem{
+				key: bytes.Clone(key),
+				logPosition: diskLogPosition{
+					EntryOffset: offset,
+					EntrySize:   uint32(entrySize),
+				},
+			})
+		}
+
+		offset += int64(entrySize)
+	}
+
+	return nil
+}

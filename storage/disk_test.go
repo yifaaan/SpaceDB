@@ -139,3 +139,63 @@ func TestDiskEngineScanPrefix(t *testing.T) {
 		t.Fatalf("prefix keys = %v, want %v", entryKeys(entries), want)
 	}
 }
+
+func TestDiskEngineRebuildsKeydir(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "spacedb.log")
+
+	engine, err := NewDiskEngine(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 同一个 key 写入两次，恢复时应由后面的日志记录覆盖前面的旧位置。
+	if err := engine.Set([]byte("name"), []byte("alice")); err != nil {
+		t.Fatal(err)
+	}
+	if err := engine.Set([]byte("name"), []byte("bob")); err != nil {
+		t.Fatal(err)
+	}
+
+	// 删除会追加墓碑。恢复时墓碑必须从 keydir 删除对应 key，
+	// 同时继续推进 offset，读取它后面的记录。
+	if err := engine.Set([]byte("deleted"), []byte("old")); err != nil {
+		t.Fatal(err)
+	}
+	if err := engine.Delete([]byte("deleted")); err != nil {
+		t.Fatal(err)
+	}
+	if err := engine.Set([]byte("after"), []byte("tombstone")); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := engine.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	reopened, err := NewDiskEngine(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = reopened.Close() })
+
+	value, err := reopened.Get([]byte("name"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(value, []byte("bob")) {
+		t.Fatalf("reopened name = %q, want bob", value)
+	}
+
+	value, err = reopened.Get([]byte("deleted"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if value != nil {
+		t.Fatalf("reopened deleted value = %q, want nil", value)
+	}
+
+	entries := collectEntries(t, reopened.Scan(nil, nil))
+	if want := []string{"after", "name"}; !slices.Equal(entryKeys(entries), want) {
+		t.Fatalf("reopened keys = %v, want %v", entryKeys(entries), want)
+	}
+}

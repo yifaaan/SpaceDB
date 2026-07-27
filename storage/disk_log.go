@@ -27,12 +27,18 @@ type diskLog struct {
 	file *os.File
 }
 
+func newDisLog(name string) (*diskLog, error) {
+	file, err := os.OpenFile(name, os.O_CREATE|os.O_APPEND|os.O_RDWR, 0o600)
+	if err != nil {
+		return nil, fmt.Errorf("storage: opening disk log %q: %w", name, err)
+	}
+	return &diskLog{file: file}, nil
+}
+
 // diskLogPosition 一条日志记录在文件中的位置
 type diskLogPosition struct {
 	EntryOffset int64  // 记录的位置
-	EntrySize   uint32 // 记录的大小
-	ValueOffset int64  // value 的位置
-	ValueSize   uint32 // value 的大小
+	EntrySize   uint32 // 记录大小
 }
 
 // writeEntry 将一条记录追加到日志文件末尾。
@@ -102,8 +108,6 @@ func (d *diskLog) writeEntry(key []byte, value []byte, deleted bool) (diskLogPos
 	return diskLogPosition{
 		EntryOffset: entryOffset,
 		EntrySize:   uint32(entrySize),
-		ValueOffset: entryOffset + diskLogHeaderSize + int64(len(key)),
-		ValueSize:   uint32(storedValueSize),
 	}, nil
 }
 
@@ -119,4 +123,30 @@ func (d *diskLog) readValue(offset int64, size uint32) ([]byte, error) {
 	}
 
 	return value, nil
+}
+
+func (d *diskLog) close() error {
+	return d.file.Close()
+}
+
+// readEntry 从 offset 处读取一条记录，返回 key, valueSize, err
+func (d *diskLog) readEntry(offset int64) ([]byte, int32, error) {
+	var header [diskLogHeaderSize]byte
+
+	n, err := d.file.ReadAt(header[:], offset)
+	if err != nil {
+		return nil, 0, fmt.Errorf("storage: reading log header at offset %d: %w", offset, err)
+	}
+	keySize := binary.BigEndian.Uint32(header[:4])
+	valueSize := int32(binary.BigEndian.Uint32(header[4:]))
+
+	key := make([]byte, int(keySize))
+
+	_, err = d.file.ReadAt(key, offset+int64(n))
+	if err != nil {
+		return nil, 0, fmt.Errorf("storage: reading log key at offset %d: %w", offset, err)
+	}
+	n += int(keySize)
+
+	return key, valueSize, nil
 }

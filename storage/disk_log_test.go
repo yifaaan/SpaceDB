@@ -28,12 +28,28 @@ func TestDiskLogWriteAndReadValue(t *testing.T) {
 		t.Fatalf("entry offset = %d, want 0", position.EntryOffset)
 	}
 
-	// value 位于 8 字节头部和 4 字节 key 之后。
-	if position.ValueOffset != 12 {
-		t.Fatalf("value offset = %d, want 12", position.ValueOffset)
+	wantEntrySize := uint32(diskLogHeaderSize + len("name") + len("alice"))
+	if position.EntrySize != wantEntrySize {
+		t.Fatalf("entry size = %d, want %d", position.EntrySize, wantEntrySize)
 	}
 
-	value, err := log.readValue(position.ValueOffset, position.ValueSize)
+	// position 只保存整条记录的位置。先从记录头读取 key 和 valueSize，
+	// 再按照 header 后紧跟 key、key 后紧跟 value 的格式推导 valueOffset。
+	key, valueSize, err := log.readEntry(position.EntryOffset)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(key, []byte("name")) {
+		t.Fatalf("key = %q, want name", key)
+	}
+	if valueSize != int32(len("alice")) {
+		t.Fatalf("value size = %d, want %d", valueSize, len("alice"))
+	}
+
+	valueOffset := position.EntryOffset +
+		int64(diskLogHeaderSize) +
+		int64(len(key))
+	value, err := log.readValue(valueOffset, uint32(valueSize))
 	if err != nil {
 		t.Fatal(err)
 	}
