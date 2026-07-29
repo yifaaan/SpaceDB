@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"iter"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -70,6 +72,126 @@ func NewDiskEngine(name string) (*DiskEngine, error) {
 	}
 
 	return engine, nil
+}
+
+func NewDiskEngineCompact(name string) (*DiskEngine, error) {
+	e, err := NewDiskEngine(name)
+	if err != nil {
+		return nil, err
+	}
+	if err = e.compact(); err != nil {
+		return nil, errors.Join(err, e.Close())
+	}
+	return e, nil
+}
+
+func (d *DiskEngine) compact() error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	if err := d.ensureOpen(); err != nil {
+		return err
+	}
+	originalPath := d.log.file.Name()
+
+	// 创建临时文件
+	tempFile, err := os.CreateTemp(filepath.Dir(originalPath), filepath.Base(originalPath)+".compact-*")
+	if err != nil {
+		return fmt.Errorf("storage: creating compact log: %w", err)
+	}
+
+	tempPath := tempFile.Name()
+
+	defer func() {
+		_ = tempFile.Close()
+		_ = os.Remove(tempPath)
+	}()
+
+	tempLog := &diskLog{file: tempFile}
+	newKeydir := btree.NewG(400, lessDiskItem)
+
+	// 重写数据到临时文件
+	var rewriteErr error
+	d.keydir.Ascend(func(item *diskItem) bool {
+		value, err := d.readLogValue(item.logPosition)
+		if err != nil {
+			rewriteErr = fmt.Errorf("storage: reading key %q: %w", item.key, err)
+			return false
+		}
+
+		position, err := tempLog.writeEntry(item.key, value, false)
+		if err != nil {
+			rewriteErr = fmt.Errorf("storage: rewriting key %q: %w", item.key, err)
+			return false
+		}
+
+		newKeydir.ReplaceOrInsert(&diskItem{
+			key:         bytes.Clone(item.key),
+			logPosition: position,
+		})
+		return true
+	})
+	if rewriteErr != nil {
+		return rewriteErr
+	}
+
+	if err := tempFile.Sync(); err != nil {
+		return fmt.Errorf("storage: syncing compact log: %w", err)
+	}
+	if err := tempFile.Close(); err != nil {
+		return fmt.Errorf("storage: closing compact log: %w", err)
+	}
+
+	// 把原日志备份
+	backupPath := tempPath + ".old"
+	if err := d.log.close(); err != nil {
+		return fmt.Errorf("storage: closing original log before compaction: %w", err)
+	}
+	if err := os.Rename(originalPath, backupPath); err != nil {
+		// 原文件没有移动成功，重新打开，让引擎保持可用
+		reopened, reopenErr := newDisLog(originalPath)
+		if reopenErr == nil {
+			d.log = reopened
+		}
+		return errors.Join(fmt.Errorf("storage: backing up original log: %w", err), reopenErr)
+	}
+
+	// 后续步骤失败时，用备份恢复旧日志和旧 keydir
+	restoreOriginal := func() error {
+		removeErr := os.Remove(originalPath)
+		if errors.Is(removeErr, os.ErrNotExist) {
+			removeErr = nil
+		}
+
+		renameErr := os.Rename(backupPath, originalPath)
+		if renameErr != nil {
+			return errors.Join(removeErr, renameErr)
+		}
+
+		reopened, reopenErr := newDisLog(originalPath)
+		if reopenErr == nil {
+			d.log = reopened
+		}
+		return errors.Join(removeErr, reopenErr)
+	}
+
+	if err := os.Rename(tempPath, originalPath); err != nil {
+		return errors.Join(fmt.Errorf("storage: installing compact log: %w", err), restoreOriginal())
+	}
+
+	replacement, err := newDisLog(originalPath)
+	if err != nil {
+		return errors.Join(fmt.Errorf("storage: reopening compact log: %w", err), restoreOriginal())
+	}
+
+	d.log = replacement
+	d.keydir = newKeydir
+
+	if err := os.Remove(backupPath); err != nil {
+		return fmt.Errorf("storage: removing compact backup: %w", err)
+	}
+
+	return nil
 }
 
 // Close 关闭磁盘日志文件

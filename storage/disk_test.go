@@ -3,6 +3,7 @@ package storage
 import (
 	"bytes"
 	"iter"
+	"os"
 	"path/filepath"
 	"slices"
 	"testing"
@@ -197,5 +198,74 @@ func TestDiskEngineRebuildsKeydir(t *testing.T) {
 	entries := collectEntries(t, reopened.Scan(nil, nil))
 	if want := []string{"after", "name"}; !slices.Equal(entryKeys(entries), want) {
 		t.Fatalf("reopened keys = %v, want %v", entryKeys(entries), want)
+	}
+}
+
+func TestNewDiskEngineCompact(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "spacedb.log")
+
+	engine, err := NewDiskEngine(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// name 的旧值不应出现在压缩后的日志中
+	if err := engine.Set([]byte("name"), []byte("alice")); err != nil {
+		t.Fatal(err)
+	}
+	if err := engine.Set([]byte("name"), []byte("bob")); err != nil {
+		t.Fatal(err)
+	}
+
+	// deleted 的普通记录和删除墓碑都不应保留
+	if err := engine.Set([]byte("deleted"), []byte("old")); err != nil {
+		t.Fatal(err)
+	}
+	if err := engine.Delete([]byte("deleted")); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := engine.Set([]byte("active"), []byte("yes")); err != nil {
+		t.Fatal(err)
+	}
+	if err := engine.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	before, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	compacted, err := NewDiskEngineCompact(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = compacted.Close() })
+
+	// 最新值必须保留。
+	value, err := compacted.Get([]byte("name"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(value, []byte("bob")) {
+		t.Fatalf("name = %q, want bob", value)
+	}
+
+	// 已删除的 key 不能复活。
+	value, err = compacted.Get([]byte("deleted"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if value != nil {
+		t.Fatalf("deleted = %q, want nil", value)
+	}
+
+	after, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Size() >= before.Size() {
+		t.Fatalf("compacted size = %d, original size = %d", after.Size(), before.Size())
 	}
 }
