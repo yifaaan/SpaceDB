@@ -228,6 +228,10 @@ func TestNewDiskEngineCompact(t *testing.T) {
 	if err := engine.Set([]byte("active"), []byte("yes")); err != nil {
 		t.Fatal(err)
 	}
+
+	// 压缩前全量扫描，只应看到每个 key 的最新值
+	entriesBefore := collectEntries(t, engine.Scan(nil, nil))
+
 	if err := engine.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -259,6 +263,26 @@ func TestNewDiskEngineCompact(t *testing.T) {
 	}
 	if value != nil {
 		t.Fatalf("deleted = %q, want nil", value)
+	}
+
+	// 压缩前后的全量扫描必须完全一致
+	entriesEqual := func(a, b []Entry) bool {
+		if len(a) != len(b) {
+			return false
+		}
+		for i := range a {
+			if !bytes.Equal(a[i].Key, b[i].Key) || !bytes.Equal(a[i].Value, b[i].Value) {
+				return false
+			}
+		}
+		return true
+	}
+	entriesAfter := collectEntries(t, compacted.Scan(nil, nil))
+	if !entriesEqual(entriesBefore, entriesAfter) {
+		t.Fatalf("scan after compact = %v, want %v", entriesAfter, entriesBefore)
+	}
+	if want := []string{"active", "name"}; !slices.Equal(entryKeys(entriesAfter), want) {
+		t.Fatalf("compacted keys = %v, want %v", entryKeys(entriesAfter), want)
 	}
 
 	after, err := os.Stat(path)
