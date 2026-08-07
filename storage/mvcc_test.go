@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestMVCCTransactionsShareState(t *testing.T) {
+func TestMVCCTransactionSnapshotVisibility(t *testing.T) {
 	mvcc := NewMVCC(NewMemoryEngine())
 
 	first, err := mvcc.Begin()
@@ -22,28 +22,63 @@ func TestMVCCTransactionsShareState(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// second 在 first 写入前已经开始，因此 first 的版本不在它的快照中。
 	v, err := second.Get([]byte("name"))
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	if !bytes.Equal(v, []byte("alice")) {
-		t.Fatalf("value = %q, want alice", v)
+	if v != nil {
+		t.Fatalf("value before first commit = %q, want nil", v)
 	}
 
 	entries, err := second.ScanPrefix([]byte("na"))
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	if len(entries) != 1 {
-		t.Fatalf("entry count = %d, want 1", len(entries))
+	if len(entries) != 0 {
+		t.Fatalf("entry count before first commit = %d, want 0", len(entries))
 	}
 
 	if err := first.Commit(); err != nil {
 		t.Fatal(err)
 	}
+
+	// first 后来提交也不会改变 second 在 Begin 时固定的快照。
+	v, err = second.Get([]byte("name"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v != nil {
+		t.Fatalf("value after first commit = %q, want nil", v)
+	}
+
 	if err := second.Rollback(); err != nil {
+		t.Fatal(err)
+	}
+
+	// first 提交后才开始的事务能够看到其已提交版本。
+	third, err := mvcc.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	v, err = third.Get([]byte("name"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(v, []byte("alice")) {
+		t.Fatalf("new transaction value = %q, want alice", v)
+	}
+
+	entries, err = third.ScanPrefix([]byte("na"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("new transaction entry count = %d, want 1", len(entries))
+	}
+
+	if err := third.Commit(); err != nil {
 		t.Fatal(err)
 	}
 }
