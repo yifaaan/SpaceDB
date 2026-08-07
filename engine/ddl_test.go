@@ -11,7 +11,7 @@ func TestSessionCreateTable(t *testing.T) {
 	engine := NewKVEngine(storage.NewMemoryEngine())
 	session := NewSession(engine)
 
-	result, err := session.Execute("CREATE TABLE users (id INT, name STRING);")
+	result, err := session.Execute("CREATE TABLE users (id INT PRIMARY KEY, name STRING);")
 
 	if err != nil {
 		t.Fatal(err)
@@ -29,7 +29,7 @@ func TestSessionCreateTable(t *testing.T) {
 
 	// 第二次创建同名表失败
 	_, err = session.Execute(
-		"CREATE TABLE users (id INT);",
+		"CREATE TABLE users (id INT PRIMARY KEY);",
 	)
 	if !errors.Is(err, ErrTableExists) {
 		t.Fatalf("error = %v, want ErrTableExists", err)
@@ -40,7 +40,7 @@ func TestSessionCreateTablePersistsSchema(t *testing.T) {
 	engine := NewKVEngine(storage.NewMemoryEngine())
 	session := NewSession(engine)
 
-	if _, err := session.Execute("CREATE TABLE users (id INT, name STRING);"); err != nil {
+	if _, err := session.Execute("CREATE TABLE users (id INT PRIMARY KEY, name STRING);"); err != nil {
 		t.Fatal(err)
 	}
 

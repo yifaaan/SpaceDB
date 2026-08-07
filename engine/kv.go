@@ -74,6 +74,38 @@ func (t *KVTransaction) Rollback() error {
 	return t.txn.Rollback()
 }
 
+// validateRow 检查一行数据是否符合表结构。
+// CreateRow 和 UpdateRow 都需要执行相同校验。
+func validateRow(table *schema.Table, row types.Row) error {
+	if len(row) == 0 {
+		return fmt.Errorf("engine: cannot store an empty row")
+	}
+
+	if len(row) != len(table.Columns) {
+		return fmt.Errorf("engine: row length mismatch: got %d, columns %d", len(row), len(table.Columns))
+	}
+
+	for i, column := range table.Columns {
+		value := row[i]
+		if value.Kind == types.ValueNull {
+			if !column.Nullable {
+				return fmt.Errorf("engine: column %q cannot be NULL", column.Name)
+			}
+			continue
+		}
+
+		actualType, ok := value.DataType()
+		if !ok {
+			return fmt.Errorf("engine: invalid value kind %d for column %q", value.Kind, column.Name)
+		}
+		if actualType != column.DataType {
+			return fmt.Errorf("engine: column %q type mismatch: want %d, got %d", column.Name, column.DataType, actualType)
+		}
+	}
+
+	return nil
+}
+
 func (t *KVTransaction) CreateRow(tableName string, row types.Row) error {
 	table, err := t.GetTable(tableName)
 	if err != nil {
@@ -83,36 +115,26 @@ func (t *KVTransaction) CreateRow(tableName string, row types.Row) error {
 		return fmt.Errorf("engine: table %q does not exist", tableName)
 	}
 
-	if len(row) == 0 {
-		return fmt.Errorf("engine: cannot insert an empty row")
+	if err := validateRow(table, row); err != nil {
+		return err
 	}
 
-	if len(row) != len(table.Columns) {
-		return fmt.Errorf("engine: row length mismatch: got %d, columns %d", len(row), len(table.Columns))
-	}
-
-	// 存储层再次校验类型
-	for i, column := range table.Columns {
-		v := row[i]
-		if v.Kind == types.ValueNull {
-			if !column.Nullable {
-				return fmt.Errorf("engine: column %q cannot be NULL", column.Name)
-			}
-			continue
-		}
-
-		actualType, ok := v.DataType()
-		if !ok {
-			return fmt.Errorf("engine: invalid value kind %d for column %q", v.Kind, column.Name)
-		}
-		if actualType != column.DataType {
-			return fmt.Errorf("engine: column %q type mismatch: want %d, got %d", column.Name, column.DataType, actualType)
-		}
-	}
-
-	key, err := rowKey(tableName, row[0])
+	primaryKey, err := table.PrimaryKeyValue(row)
 	if err != nil {
 		return err
+	}
+
+	key, err := rowKey(tableName, primaryKey)
+	if err != nil {
+		return err
+	}
+
+	existing, err := t.txn.Get(key)
+	if err != nil {
+		return fmt.Errorf("engine: checking primary key for table %q: %w", tableName, err)
+	}
+	if existing != nil {
+		return fmt.Errorf("engine: duplicate primary key in table %q", tableName)
 	}
 
 	var json = jsoniter.ConfigCompatibleWithStandardLibrary
@@ -124,7 +146,66 @@ func (t *KVTransaction) CreateRow(tableName string, row types.Row) error {
 	return t.txn.Set(key, encoded)
 }
 
-func (t *KVTransaction) ScanTable(tableName string) ([]types.Row, error) {
+func (t *KVTransaction) UpdateRow(table *schema.Table, oldPrimaryKey types.Value, row types.Row) error {
+	if err := validateRow(table, row); err != nil {
+		return err
+	}
+
+	newPrimaryKey, err := table.PrimaryKeyValue(row)
+	if err != nil {
+		return err
+	}
+
+	newKey, err := rowKey(table.Name, newPrimaryKey)
+	if err != nil {
+		return err
+	}
+
+	if oldPrimaryKey != newPrimaryKey {
+		oldKey, err := rowKey(table.Name, oldPrimaryKey)
+		if err != nil {
+			return err
+		}
+
+		existing, err := t.txn.Get(newKey)
+		if err != nil {
+			return fmt.Errorf("engine: checking updated primary key: %w", err)
+		}
+		if existing != nil {
+			return fmt.Errorf("engine: duplicate primary key in table %q", table.Name)
+		}
+
+		if err := t.txn.Delete(oldKey); err != nil {
+			return fmt.Errorf("engine: deleting old row key: %w", err)
+		}
+	}
+
+	var json = jsoniter.ConfigCompatibleWithStandardLibrary
+	encoded, err := json.Marshal(row)
+	if err != nil {
+		return fmt.Errorf("engine: encoding updated row for table %q: %w", table.Name, err)
+	}
+
+	return t.txn.Set(newKey, encoded)
+}
+
+func (t *KVTransaction) ScanTable(tableName string, filter *executor.RowFilter) ([]types.Row, error) {
+	table, err := t.GetTable(tableName)
+	if err != nil {
+		return nil, fmt.Errorf("engine: loading table %q: %w", tableName, err)
+	}
+	if table == nil {
+		return nil, fmt.Errorf("engine: table %q does not exist", tableName)
+	}
+
+	filterColumn := 0
+	if filter != nil {
+		filterColumn, err = table.ColumnIndex(filter.Column)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	prefix, err := rowPrefixKey(tableName)
 	if err != nil {
 		return nil, err
@@ -143,6 +224,12 @@ func (t *KVTransaction) ScanTable(tableName string) ([]types.Row, error) {
 		if err := json.Unmarshal(e.Value, &row); err != nil {
 			return nil, fmt.Errorf("engine: decoding row %d from table %q: %w", i+1, tableName, err)
 		}
+		if len(row) != len(table.Columns) {
+			return nil, fmt.Errorf("engine: stored row %d has %d values, want %d", i+1, len(row), len(table.Columns))
+		}
+		if filter != nil && row[filterColumn] != filter.Value {
+			continue
+		}
 		rows = append(rows, row)
 	}
 
@@ -150,9 +237,8 @@ func (t *KVTransaction) ScanTable(tableName string) ([]types.Row, error) {
 }
 
 func (t *KVTransaction) CreateTable(table schema.Table) error {
-	// 判断表的有效性
-	if table.Name == "" || len(table.Columns) == 0 {
-		return fmt.Errorf("%w: table must have name and columns", ErrInvalidTable)
+	if err := table.Validate(); err != nil {
+		return fmt.Errorf("%w: %v", ErrInvalidTable, err)
 	}
 	// 判断表是否存在
 	exist, err := t.GetTable(table.Name)

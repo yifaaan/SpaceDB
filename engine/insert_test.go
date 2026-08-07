@@ -13,7 +13,7 @@ func TestSessionInsert(t *testing.T) {
 
 	_, err := session.Execute(`
 		CREATE TABLE users (
-			id INT NOT NULL,
+			id INT PRIMARY KEY NOT NULL,
 			name STRING DEFAULT 'guest'
 		);
 	`)
@@ -49,7 +49,7 @@ func TestSessionInsert(t *testing.T) {
 func TestSessionInsertTypeMismatch(t *testing.T) {
 	session := NewSession(NewKVEngine(storage.NewMemoryEngine()))
 
-	if _, err := session.Execute("CREATE TABLE users (id INT NOT NULL);"); err != nil {
+	if _, err := session.Execute("CREATE TABLE users (id INT PRIMARY KEY NOT NULL);"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -62,7 +62,7 @@ func TestSessionInsertTypeMismatch(t *testing.T) {
 func TestSessionInsertMissingRequiredValue(t *testing.T) {
 	session := NewSession(NewKVEngine(storage.NewMemoryEngine()))
 
-	if _, err := session.Execute("CREATE TABLE users (id INT NOT NULL, name STRING NOT NULL);"); err != nil {
+	if _, err := session.Execute("CREATE TABLE users (id INT PRIMARY KEY NOT NULL, name STRING NOT NULL);"); err != nil {
 		t.Fatal(err)
 	}
 

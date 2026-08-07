@@ -14,7 +14,7 @@ func TestTestSessionSelectAll(t *testing.T) {
 
 	if _, err := session.Execute(`
 		CREATE TABLE users (
-			id INT NOT NULL,
+			id INT PRIMARY KEY NOT NULL,
 			name STRING DEFAULT 'guest',
 			active BOOL DEFAULT true
 		);

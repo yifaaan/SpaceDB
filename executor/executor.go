@@ -112,7 +112,7 @@ func (s ScanExecutor) Execute(txn Transaction) (ResultSet, error) {
 		return nil, fmt.Errorf("executor: table %q does not exist", s.TableName)
 	}
 
-	rows, err := txn.ScanTable(s.TableName)
+	rows, err := txn.ScanTable(s.TableName, nil)
 	if err != nil {
 		return nil, fmt.Errorf("executor: scanning table %q: %w", s.TableName, err)
 	}

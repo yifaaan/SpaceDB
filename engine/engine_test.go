@@ -36,7 +36,11 @@ func (*fakeTransaction) CreateRow(string, types.Row) error {
 	return nil
 }
 
-func (*fakeTransaction) ScanTable(string) ([]types.Row, error) {
+func (*fakeTransaction) UpdateRow(*schema.Table, types.Value, types.Row) error {
+	return nil
+}
+
+func (*fakeTransaction) ScanTable(string, *executor.RowFilter) ([]types.Row, error) {
 	return nil, nil
 }
 
