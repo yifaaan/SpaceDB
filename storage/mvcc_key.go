@@ -162,6 +162,18 @@ func activeTransactionPrefix() []byte {
 	return mvccKeyKindPrefix(mvccKeyTxnActive)
 }
 
+// transactionWritePrefix 返回事务 v 的所有写集合记录共享的前缀
+//
+// key 格式：
+//
+//	MVCC namespace | TxnWrite kind | transaction version | raw key
+//
+// Commit 和 Rollback 都需要扫描该前缀。
+func transactionWritePrefix(v version) []byte {
+	prefix := mvccKeyKindPrefix(mvccKeyTxnWrite)
+	return binary.BigEndian.AppendUint64(prefix, uint64(v))
+}
+
 // versionedKeyPrefix 返回原始 key 前缀对应的版本记录扫描前缀。
 //
 // 这里只转义 rawPrefix，不添加 [0, 0] 终止符，因为它表示前缀，
