@@ -199,8 +199,7 @@ func (t *MVCCTransaction) Get(key []byte) ([]byte, error) {
 
 	// 扫描该 key 的所有版本，从新到旧
 	from := versionedKey(key, 0).encode()
-	maxKey := versionedKey(key, ^version(0)).encode()
-	to := append(maxKey, 0)
+	to := versionedKey(key, t.state.version+1).encode()
 
 	for entry, err := range engine.ScanReverse(from, to) {
 		if err != nil {
