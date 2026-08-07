@@ -27,6 +27,11 @@ func TestBuildExecutor(t *testing.T) {
 			node: planner.ScanNode{},
 			want: ScanExecutor{},
 		},
+		{
+			name: "update",
+			node: planner.UpdateNode{Source: planner.ScanNode{}},
+			want: UpdateExecutor{},
+		},
 	}
 
 	for _, tt := range tests {
@@ -47,6 +52,10 @@ func TestBuildExecutor(t *testing.T) {
 				}
 			case ScanExecutor:
 				if _, ok := got.(ScanExecutor); !ok {
+					t.Fatalf("executor = %T", got)
+				}
+			case UpdateExecutor:
+				if _, ok := got.(UpdateExecutor); !ok {
 					t.Fatalf("executor = %T", got)
 				}
 			}

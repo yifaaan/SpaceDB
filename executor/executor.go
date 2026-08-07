@@ -2,6 +2,7 @@ package executor
 
 import (
 	"fmt"
+	"slices"
 	"spacedb/parser"
 	"spacedb/planner"
 	"spacedb/schema"
@@ -26,6 +27,13 @@ type InsertResult struct {
 }
 
 func (InsertResult) resultSet() {}
+
+// UpdateResult UPDATE 的执行结果。
+type UpdateResult struct {
+	Count int
+}
+
+func (UpdateResult) resultSet() {}
 
 // RowsResult 查询返回的多行数据
 type RowsResult struct {
@@ -101,6 +109,7 @@ func (i InsertExecutor) Execute(txn Transaction) (ResultSet, error) {
 // ScanExecutor 对应 planner.ScanNode
 type ScanExecutor struct {
 	TableName string
+	Filter    *parser.EqualityFilter
 }
 
 func (s ScanExecutor) Execute(txn Transaction) (ResultSet, error) {
@@ -112,7 +121,19 @@ func (s ScanExecutor) Execute(txn Transaction) (ResultSet, error) {
 		return nil, fmt.Errorf("executor: table %q does not exist", s.TableName)
 	}
 
-	rows, err := txn.ScanTable(s.TableName, nil)
+	var filter *RowFilter
+	if s.Filter != nil {
+		value, err := planner.ValueFromExpression(s.Filter.Value)
+		if err != nil {
+			return nil, fmt.Errorf("executor: converting filter for column %q: %w", s.Filter.Column, err)
+		}
+		filter = &RowFilter{
+			Column: s.Filter.Column,
+			Value:  value,
+		}
+	}
+
+	rows, err := txn.ScanTable(s.TableName, filter)
 	if err != nil {
 		return nil, fmt.Errorf("executor: scanning table %q: %w", s.TableName, err)
 	}
@@ -128,6 +149,80 @@ func (s ScanExecutor) Execute(txn Transaction) (ResultSet, error) {
 	}, nil
 }
 
+// UpdateExecutor 对应 planner.UpdateNode。
+type UpdateExecutor struct {
+	TableName   string
+	Source      Executor
+	Assignments map[string]parser.Expression
+}
+
+func (u UpdateExecutor) Execute(txn Transaction) (ResultSet, error) {
+	table, err := txn.GetTable(u.TableName)
+	if err != nil {
+		return nil, fmt.Errorf("executor: loading table %q: %w", u.TableName, err)
+	}
+	if table == nil {
+		return nil, fmt.Errorf("executor: table %q does not exist", u.TableName)
+	}
+
+	// 列位置与运行时值只转换一次，避免每更新一行都重复处理。
+	assignments := make([]struct {
+		columnIndex int
+		value       types.Value
+	}, 0, len(u.Assignments))
+
+	for columnName, expression := range u.Assignments {
+		columnIndex, err := table.ColumnIndex(columnName)
+		if err != nil {
+			return nil, fmt.Errorf("executor: resolving update column %q: %w", columnName, err)
+		}
+		value, err := planner.ValueFromExpression(expression)
+		if err != nil {
+			return nil, fmt.Errorf("executor: converting update value for column %q: %w", columnName, err)
+		}
+		assignments = append(assignments, struct {
+			columnIndex int
+			value       types.Value
+		}{
+			columnIndex: columnIndex,
+			value:       value,
+		})
+	}
+
+	if u.Source == nil {
+		return nil, fmt.Errorf("executor: UPDATE source is nil")
+	}
+
+	sourceResult, err := u.Source.Execute(txn)
+	if err != nil {
+		return nil, err
+	}
+	rowsResult, ok := sourceResult.(RowsResult)
+	if !ok {
+		return nil, fmt.Errorf("executor: UPDATE source returned %T, want RowsResult", sourceResult)
+	}
+
+	updated := 0
+	for rowIndex, row := range rowsResult.Rows {
+		oldPrimaryKey, err := table.PrimaryKeyValue(row)
+		if err != nil {
+			return nil, fmt.Errorf("executor: reading primary key from row %d: %w", rowIndex+1, err)
+		}
+
+		updatedRow := slices.Clone(row)
+		for _, assignment := range assignments {
+			updatedRow[assignment.columnIndex] = assignment.value
+		}
+
+		if err := txn.UpdateRow(table, oldPrimaryKey, updatedRow); err != nil {
+			return nil, fmt.Errorf("executor: updating row %d: %w", rowIndex+1, err)
+		}
+		updated++
+	}
+
+	return UpdateResult{Count: updated}, nil
+}
+
 // Build 根据 plan 节点创建对应的 Executor
 func Build(node planner.Node) (Executor, error) {
 	switch node := node.(type) {
@@ -138,7 +233,18 @@ func Build(node planner.Node) (Executor, error) {
 		return InsertExecutor{TableName: node.TableName, Columns: node.Columns, Values: node.Values}, nil
 
 	case planner.ScanNode:
-		return ScanExecutor{TableName: node.TableName}, nil
+		return ScanExecutor{TableName: node.TableName, Filter: node.Filter}, nil
+
+	case planner.UpdateNode:
+		source, err := Build(node.Source)
+		if err != nil {
+			return nil, fmt.Errorf("executor: building UPDATE source: %w", err)
+		}
+		return UpdateExecutor{
+			TableName:   node.TableName,
+			Source:      source,
+			Assignments: node.Assignments,
+		}, nil
 
 	default:
 		return nil, fmt.Errorf("executor: unsupported plan node %T", node)
