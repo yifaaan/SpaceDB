@@ -86,7 +86,7 @@ func TestMVCCBeginAllocatesVersionAndCapturesActiveTransactions(t *testing.T) {
 		t.Fatal("second transaction contains itself in active versions")
 	}
 
-	encodedNext, err := engine.Get([]byte(mvccNextVersionKey))
+	encodedNext, err := engine.Get(nextVersionKey().encode())
 	if err != nil {
 		t.Fatal(err)
 	}

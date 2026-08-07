@@ -2,44 +2,9 @@ package storage
 
 import (
 	"bytes"
-	"encoding/binary"
 	"fmt"
 	"sync"
 )
-
-// version 是 MVCC 使用的事务版本号
-type version uint64
-
-// MVCC 内部 key 使用独立命名空间，避免和当前 SQL 表、行数据的 key 冲突。
-const (
-	mvccMetadataPrefix          = "\x00spacedb\x00"
-	mvccNextVersionKey          = mvccMetadataPrefix + "\x00"
-	mvccActiveTransactionPrefix = mvccMetadataPrefix + "\x01"
-)
-
-// activeTransactionKey 为指定事务生成活跃标记 key
-func activeTransactionKey(v version) []byte {
-	key := make([]byte, len(mvccActiveTransactionPrefix)+8)
-	copy(key, mvccActiveTransactionPrefix)
-	binary.BigEndian.PutUint64(key[len(mvccActiveTransactionPrefix):], uint64(v))
-	return key
-}
-
-// encodeVersion 把事务版本编码成固定 8 字节
-func encodeVersion(v version) []byte {
-	encoded := make([]byte, 8)
-	binary.BigEndian.PutUint64(encoded, uint64(v))
-	return encoded
-}
-
-// decodeVersion 解码固定长度的事务版本
-func decodeVersion(encoded []byte) (version, error) {
-	if len(encoded) != 8 {
-		return 0, fmt.Errorf("storage: invalid version encoding: got %d bytes, want 8", len(encoded))
-	}
-
-	return version(binary.BigEndian.Uint64(encoded)), nil
-}
 
 // transactionState 是某个事务在 Begin 时得到的固定快照
 type transactionState struct {
@@ -78,8 +43,9 @@ func (m *MVCC) Begin() (*MVCCTransaction, error) {
 	m.state.mu.Lock()
 	defer m.state.mu.Unlock()
 
+	// 获取事务序列号
 	next := version(1)
-	encodedNext, err := m.state.engine.Get([]byte(mvccNextVersionKey))
+	encodedNext, err := m.state.engine.Get([]byte(nextVersionKey().encode()))
 	if err != nil {
 		return nil, fmt.Errorf("storage: loading next transaction version: %w", err)
 	}
@@ -90,30 +56,29 @@ func (m *MVCC) Begin() (*MVCCTransaction, error) {
 		}
 	}
 
-	if next == ^version(0) {
-		return nil, fmt.Errorf("storage: transaction version exhausted")
-	}
-
-	// 当前事务加入活跃集合前，先固定它开始时看到的活跃事务快照。
+	// 构建当前活跃事务表
 	activeVersions := make(map[version]struct{})
-	activePrefix := []byte(mvccActiveTransactionPrefix)
+	activePrefix := activeTransactionPrefix()
 	for entry, err := range m.state.engine.ScanPrefix(activePrefix) {
 		if err != nil {
 			return nil, fmt.Errorf("storage: scanning active transactions: %w", err)
 		}
-		if len(entry.Key) != len(activePrefix)+8 || !bytes.Equal(entry.Key[:len(activePrefix)], activePrefix) {
-			return nil, fmt.Errorf("storage: invalid active transaction key %x", entry.Key)
+		key, err := decodeMvccKey(entry.Key)
+		if err != nil {
+			return nil, err
+		}
+		if key.kind != mvccKeyTxnActive {
+			return nil, fmt.Errorf("storage: unexpected MVCC key kind %d", key.kind)
 		}
 
-		activeVersion := version(binary.BigEndian.Uint64(entry.Key[len(activePrefix):]))
-		activeVersions[activeVersion] = struct{}{}
+		activeVersions[key.version] = struct{}{}
 	}
 
-	// 当前事务使用 next，因此持久化 next+1，留给下一个事务
-	if err := m.state.engine.Set([]byte(mvccNextVersionKey), encodeVersion(next+1)); err != nil {
+	// 当前事务使用 next，持久化序列号 next+1
+	if err := m.state.engine.Set(nextVersionKey().encode(), encodeVersion(next+1)); err != nil {
 		return nil, fmt.Errorf("storage: saving next transaction version: %w", err)
 	}
-	if err := m.state.engine.Set(activeTransactionKey(next), []byte{}); err != nil {
+	if err := m.state.engine.Set(activeTransactionKey(next).encode(), nil); err != nil {
 		return nil, fmt.Errorf("storage: marking transaction %d active: %w", next, err)
 	}
 
