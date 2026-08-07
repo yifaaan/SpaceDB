@@ -148,6 +148,38 @@ func (t *MVCCTransaction) Commit() error {
 }
 
 func (t *MVCCTransaction) Rollback() error {
+	t.shared.mu.Lock()
+	defer t.shared.mu.Unlock()
+
+	engine := t.shared.engine
+	// 找到当前事务的写集合和插入的用户key
+	allKeys := make([][]byte, 0)
+	for entry, err := range engine.ScanPrefix(transactionWritePrefix(t.state.version)) {
+		if err != nil {
+			return fmt.Errorf("storage: scanning transaction %d writes: %w", t.state.version, err)
+		}
+		decoded, err := decodeMvccKey(entry.Key)
+		if err != nil {
+			return err
+		}
+		if decoded.kind != mvccKeyTxnWrite || decoded.version != t.state.version {
+			return fmt.Errorf("storage: unexpected transaction-write key %x", entry.Key)
+		}
+
+		allKeys = append(allKeys, bytes.Clone(entry.Key))
+		allKeys = append(allKeys, versionedKey(decoded.rawKey, decoded.version).encode())
+	}
+	for _, key := range allKeys {
+		if err := engine.Delete(key); err != nil {
+			return fmt.Errorf("storage: deleting key %x: %w", key, err)
+		}
+	}
+
+	// 删除活跃事务标记
+	if err := engine.Delete(activeTransactionKey(t.state.version).encode()); err != nil {
+		return fmt.Errorf("storage: marking transaction %d committed: %w", t.state.version, err)
+	}
+
 	return nil
 }
 
@@ -180,8 +212,7 @@ func (t *MVCCTransaction) Get(key []byte) ([]byte, error) {
 			return nil, err
 		}
 
-		// 跳过当前事务开始之后创建的版本
-		if decoded.version > t.state.version {
+		if !t.state.isVisible(decoded.version) {
 			continue
 		}
 
@@ -237,8 +268,7 @@ func (t *MVCCTransaction) ScanPrefix(prefix []byte) ([]Entry, error) {
 			currentVisible = false
 		}
 
-		// 跳过当前事务开始之后创建的版本
-		if decoded.version > t.state.version {
+		if !t.state.isVisible(decoded.version) {
 			continue
 		}
 
