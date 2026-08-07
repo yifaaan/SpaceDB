@@ -27,14 +27,28 @@ type InsertNode struct {
 
 func (InsertNode) node() {}
 
-// ScanNode 表示对一张表进行完整扫描的执行节点
+// ScanNode 表示表扫描。
 //
-// 当前 只支持 SELECT * FROM table，
+// Filter 为 nil 表示扫描全部行；
+// 非 nil 时只返回满足“列 = 常量”的行
 type ScanNode struct {
 	TableName string
+	Filter    *parser.EqualityFilter
 }
 
 func (ScanNode) node() {}
+
+// UpdateNode 表示 UPDATE 的执行计划
+//
+// Source 通常是一个 ScanNode，负责找出需要更新的行
+// Assignments 保存每个目标列对应的新常量值
+type UpdateNode struct {
+	TableName   string
+	Source      Node
+	Assignments map[string]parser.Expression
+}
+
+func (UpdateNode) node() {}
 
 // Plan 一个完整的执行计划
 // 当前一个 SQL 语句对应一个根节点
@@ -74,9 +88,23 @@ func Build(stmt parser.Statement) (Plan, error) {
 		return Plan{
 			Node: ScanNode{
 				TableName: stmt.TableName,
+				Filter:    nil,
 			},
 		}, nil
 
+	case parser.UpdateStatement:
+		source := ScanNode{
+			TableName: stmt.TableName,
+			Filter:    stmt.Filter,
+		}
+
+		return Plan{
+			Node: UpdateNode{
+				TableName:   stmt.TableName,
+				Source:      source,
+				Assignments: stmt.Assignments,
+			},
+		}, nil
 	default:
 		return Plan{}, fmt.Errorf(
 			"planner: statement type %T is not implemented",

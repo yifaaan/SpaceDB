@@ -36,10 +36,11 @@ func tableFromCreateStatement(stmt parser.CreateTableStatement) (schema.Table, e
 		}
 
 		table.Columns = append(table.Columns, schema.Column{
-			Name:     astColumn.Name,
-			DataType: astColumn.DataType,
-			Nullable: nullable,
-			Default:  defaultValue,
+			Name:       astColumn.Name,
+			DataType:   astColumn.DataType,
+			Nullable:   nullable,
+			Default:    defaultValue,
+			PrimaryKey: astColumn.PrimaryKey,
 		})
 	}
 	return table, nil
