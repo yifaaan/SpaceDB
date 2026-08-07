@@ -8,7 +8,7 @@ import (
 
 // transactionState 是某个事务在 Begin 时得到的固定快照
 type transactionState struct {
-	// version 是当前事务自己的版本
+	// version 当前事务的版本
 	version version
 
 	// activeVersions 是当前事务开始之前仍然活跃的事务
@@ -16,6 +16,18 @@ type transactionState struct {
 	// 后面的可见性判断会使用这个集合：
 	// 即使这些事务之后提交，它们写入的数据对当前事务仍然不可见
 	activeVersions map[version]struct{}
+}
+
+// isVisible 判断指定版本的数据对当前事务是否可见
+//
+//  1. 当前事务开始时仍活跃的事务版本不可见
+//  2. 比当前事务更新的版本不可见
+//  3. 其余版本可见，包括当前事务自己的版本
+func (s transactionState) isVisible(v version) bool {
+	if _, ok := s.activeVersions[v]; ok {
+		return false
+	}
+	return v <= s.version
 }
 
 // mvccState 是 MVCC 和所有事务共享的状态
