@@ -177,7 +177,7 @@ func (t *MVCCTransaction) Rollback() error {
 
 	// 删除活跃事务标记
 	if err := engine.Delete(activeTransactionKey(t.state.version).encode()); err != nil {
-		return fmt.Errorf("storage: marking transaction %d committed: %w", t.state.version, err)
+		return fmt.Errorf("marking transaction %d rolled back", t.state.version)
 	}
 
 	return nil

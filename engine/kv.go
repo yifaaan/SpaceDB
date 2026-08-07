@@ -67,11 +67,11 @@ type KVTransaction struct {
 }
 
 func (t *KVTransaction) Commit() error {
-	return nil
+	return t.txn.Commit()
 }
 
 func (t *KVTransaction) Rollback() error {
-	return nil
+	return t.txn.Rollback()
 }
 
 func (t *KVTransaction) CreateRow(tableName string, row types.Row) error {
