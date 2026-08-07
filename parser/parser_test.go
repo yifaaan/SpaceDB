@@ -51,6 +51,49 @@ func TestParserStatements(t *testing.T) {
 				}
 			},
 		},
+		{
+			name: "update",
+			sql:  "UPDATE users SET name = 'alice', age = 20 WHERE id = 1;",
+			want: func(t *testing.T, statement Statement) {
+				updateStatement, ok := statement.(UpdateStatement)
+				if !ok {
+					t.Fatalf(
+						"statement type = %T, want UpdateStatement",
+						statement,
+					)
+				}
+
+				if updateStatement.TableName != "users" {
+					t.Fatalf(
+						"table = %q, want users",
+						updateStatement.TableName,
+					)
+				}
+
+				if len(updateStatement.Assignments) != 2 {
+					t.Fatalf(
+						"assignments = %#v",
+						updateStatement.Assignments,
+					)
+				}
+
+				if got := updateStatement.Assignments["name"].Value; got != "alice" {
+					t.Fatalf("name value = %#v, want alice", got)
+				}
+
+				if got := updateStatement.Assignments["age"].Value; got != int64(20) {
+					t.Fatalf("age value = %#v, want 20", got)
+				}
+
+				if updateStatement.Filter == nil {
+					t.Fatal("filter is nil")
+				}
+				if updateStatement.Filter.Column != "id" ||
+					updateStatement.Filter.Value.Value != int64(1) {
+					t.Fatalf("filter = %#v", updateStatement.Filter)
+				}
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -74,6 +117,8 @@ func TestParserErrors(t *testing.T) {
 		"CREATE TABLE users (id INT,);",
 		"CREATE TABLE users (age INT DEFAULT);",
 		"INSERT INTO users VALUES ();",
+		"UPDATE users SET name = 'a', name = 'b';",
+		"UPDATE users SET name = 'a' WHERE id;",
 	}
 	for _, sql := range tests {
 		t.Run(sql, func(t *testing.T) {

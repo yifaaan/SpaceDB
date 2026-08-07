@@ -177,6 +177,8 @@ func (l *Lexer) scanSymbol() (Token, error) {
 		kind = Minus
 	case '/':
 		kind = Slash
+	case '=':
+		kind = Equal
 	default:
 		return Token{}, fmt.Errorf("lexer: unexpected character %q at %s", l.peek(), DescribePosition(begin))
 	}

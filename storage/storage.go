@@ -226,7 +226,7 @@ func (t *MVCCTransaction) Delete(key []byte) error {
 	return t.write(key, nil, true)
 }
 
-// ScanPrefix 返回所有以 prefix 开头且最新可见版本不是删除标记的 KV
+// ScanPrefix 返回所有以 prefix 开头的 KV
 func (t *MVCCTransaction) ScanPrefix(prefix []byte) ([]Entry, error) {
 	t.shared.mu.RLock()
 	defer t.shared.mu.RUnlock()

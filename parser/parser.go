@@ -97,6 +97,8 @@ func (p *Parser) parseStatement() (Statement, error) {
 		return p.parseCreateTable()
 	case lexer.KeywordInsert:
 		return p.parseInsert()
+	case lexer.KeywordUpdate:
+		return p.parseUpdate()
 	default:
 		return nil, errors.New("parser: unsupported statement")
 	}
@@ -242,6 +244,94 @@ func (p *Parser) parseInsert() (Statement, error) {
 	return InsertStatement{TableName: tableName, Columns: columns, Values: values}, nil
 }
 
+// parseUpdate 解析 UPDATE 语句
+//
+//	UPDATE <表名>
+//	SET <列名> = <常量> [, <列名> = <常量> ...]
+//	[WHERE <列名> = <常量>]
+func (p *Parser) parseUpdate() (Statement, error) {
+	if err := p.expectKeyword(lexer.KeywordUpdate); err != nil {
+		return nil, err
+	}
+
+	tableName, err := p.expectIdentifier()
+	if err != nil {
+		return nil, err
+	}
+
+	if err := p.expectKeyword(lexer.KeywordSet); err != nil {
+		return nil, err
+	}
+
+	assignments := make(map[string]Expression)
+
+	// SET 后至少要求一组“列名 = 常量”。
+	for {
+		columnOffset := p.peek().Offset
+
+		columnName, err := p.expectIdentifier()
+		if err != nil {
+			return nil, err
+		}
+
+		if err := p.expect(lexer.Equal); err != nil {
+			return nil, err
+		}
+
+		value, err := p.parseExpression()
+		if err != nil {
+			return nil, err
+		}
+
+		if _, exists := assignments[columnName]; exists {
+			return nil, fmt.Errorf("parser: duplicate update column %q at %s", columnName, lexer.DescribePosition(columnOffset))
+		}
+
+		assignments[columnName] = value
+
+		if p.peek().Kind != lexer.Comma {
+			break
+		}
+		if err := p.expect(lexer.Comma); err != nil {
+			return nil, err
+		}
+	}
+
+	var filter *EqualityFilter
+
+	current := p.peek()
+	if current.Kind == lexer.KeywordKind && current.Keyword == lexer.KeywordWhere {
+		if err := p.expectKeyword(lexer.KeywordWhere); err != nil {
+			return nil, err
+		}
+
+		columnName, err := p.expectIdentifier()
+		if err != nil {
+			return nil, err
+		}
+
+		if err := p.expect(lexer.Equal); err != nil {
+			return nil, err
+		}
+
+		value, err := p.parseExpression()
+		if err != nil {
+			return nil, err
+		}
+
+		filter = &EqualityFilter{
+			Column: columnName,
+			Value:  value,
+		}
+	}
+
+	return UpdateStatement{
+		TableName:   tableName,
+		Assignments: assignments,
+		Filter:      filter,
+	}, nil
+}
+
 // parseColumn 解析一列：<列名> <类型> [约束 ...]。
 // 约束是 NULL / NOT NULL / DEFAULT <常量表达式> 的任意组合，循环解析直到遇到非关键字
 func (p *Parser) parseColumn() (Column, error) {
@@ -281,6 +371,15 @@ func (p *Parser) parseColumn() (Column, error) {
 				return Column{}, err
 			}
 			column.DefaultValue = &expression
+
+		case lexer.KeywordPrimary:
+			_ = p.next()
+
+			if err := p.expectKeyword(lexer.KeywordKey); err != nil {
+				return Column{}, err
+			}
+
+			column.PrimaryKey = true
 		default:
 			return Column{}, fmt.Errorf("parser: unexpected column constraint '%s' at %s", next.Keyword, lexer.DescribePosition(next.Offset))
 		}

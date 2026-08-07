@@ -38,6 +38,9 @@ type Column struct {
 	// &false = 显式 NOT NULL。
 	Nullable     *bool
 	DefaultValue *Expression
+
+	// PrimaryKey 表示该列是否带有 PRIMARY KEY 约束
+	PrimaryKey bool
 }
 
 // CreateTableStatement CREATE TABLE 的 AST
@@ -58,6 +61,27 @@ type SelectStatement struct {
 	TableName string
 }
 
+// EqualityFilter 表示 WHERE 条件：
+//
+//	WHERE column = constant
+//
+// 暂时不支持 AND、OR、大于、小于...
+type EqualityFilter struct {
+	Column string
+	Value  Expression
+}
+
+// UpdateStatement 表示 UPDATE 语句
+type UpdateStatement struct {
+	TableName string
+
+	// Assignments 保存 SET 后的“列名 -> 常量表达式”。
+	Assignments map[string]Expression
+
+	// Filter 为 nil 表示没有 WHERE，即更新表中全部行。
+	Filter *EqualityFilter
+}
+
 type Statement interface {
 	statement()
 }
@@ -65,10 +89,12 @@ type Statement interface {
 func (CreateTableStatement) statement() {}
 func (InsertStatement) statement()      {}
 func (SelectStatement) statement()      {}
+func (UpdateStatement) statement()      {}
 
 var _ Statement = CreateTableStatement{}
 var _ Statement = InsertStatement{}
 var _ Statement = SelectStatement{}
+var _ Statement = UpdateStatement{}
 
 // keywordDataType 把类型关键字归一化为 DataType
 // INT / INTEGER → Integer；BOOL / BOOLEAN → Boolean；

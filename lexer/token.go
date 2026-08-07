@@ -31,6 +31,9 @@ const (
 	KeywordNull    Keyword = "NULL"
 	KeywordPrimary Keyword = "PRIMARY"
 	KeywordKey     Keyword = "KEY"
+	KeywordUpdate  Keyword = "UPDATE"
+	KeywordSet     Keyword = "SET"
+	KeywordWhere   Keyword = "WHERE"
 )
 
 type Kind uint8
@@ -49,6 +52,7 @@ const (
 	Plus
 	Minus
 	Slash
+	Equal
 )
 
 type Token struct {
@@ -66,7 +70,8 @@ func KeywordFromIdentifier(identifier string) (Keyword, bool) {
 		KeywordVarchar, KeywordFloat, KeywordDouble, KeywordSelect,
 		KeywordFrom, KeywordInsert, KeywordInto, KeywordValues,
 		KeywordTrue, KeywordFalse, KeywordDefault, KeywordNot,
-		KeywordNull, KeywordPrimary, KeywordKey:
+		KeywordNull, KeywordPrimary, KeywordKey,
+		KeywordUpdate, KeywordSet, KeywordWhere:
 		return keyword, true
 	default:
 		return "", false
@@ -101,6 +106,8 @@ func (k Kind) String() string {
 		return "'-'"
 	case Slash:
 		return "'/'"
+	case Equal:
+		return "'='"
 	default:
 		return "unknown token"
 	}
