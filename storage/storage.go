@@ -121,44 +121,192 @@ func (t *MVCCTransaction) Rollback() error {
 }
 
 func (t *MVCCTransaction) Set(key, value []byte) error {
-	t.shared.mu.Lock()
-	defer t.shared.mu.Unlock()
-
-	return t.shared.engine.Set(key, value)
+	return t.write(key, value, false)
 }
 
 // Get 在事务中读取一个 KV
+//
+// 返回该 key 最新可见版本的 value；
+// 最新可见版本是删除标记或 key 不存在时返回 nil。
 func (t *MVCCTransaction) Get(key []byte) ([]byte, error) {
-
 	t.shared.mu.RLock()
 	defer t.shared.mu.RUnlock()
 
-	return t.shared.engine.Get(key)
-}
+	engine := t.shared.engine
 
-// Delete 在事务中删除一个 KV
-func (t *MVCCTransaction) Delete(key []byte) error {
-	t.shared.mu.Lock()
-	defer t.shared.mu.Unlock()
+	// 扫描该 key 的所有版本，从新到旧
+	from := versionedKey(key, 0).encode()
+	maxKey := versionedKey(key, ^version(0)).encode()
+	to := append(maxKey, 0)
 
-	return t.shared.engine.Delete(key)
-}
+	for entry, err := range engine.ScanReverse(from, to) {
+		if err != nil {
+			return nil, fmt.Errorf("storage: scanning versions for key %x: %w", key, err)
+		}
 
-func (t *MVCCTransaction) ScanPrefix(prefix []byte) ([]Entry, error) {
-	t.shared.mu.RLock()
-	defer t.shared.mu.RUnlock()
-
-	entries := make([]Entry, 0)
-
-	for entry, err := range t.shared.engine.ScanPrefix(prefix) {
+		decoded, err := decodeMvccKey(entry.Key)
 		if err != nil {
 			return nil, err
 		}
 
-		entries = append(entries, Entry{
-			Key:   bytes.Clone(entry.Key),
-			Value: bytes.Clone(entry.Value),
-		})
+		// 跳过当前事务开始之后创建的版本
+		if decoded.version > t.state.version {
+			continue
+		}
+
+		return decodeVersionedValue(entry.Value)
 	}
+
+	return nil, nil
+}
+
+// Delete 在事务中删除一个 KV
+func (t *MVCCTransaction) Delete(key []byte) error {
+	return t.write(key, nil, true)
+}
+
+// ScanPrefix 返回所有以 prefix 开头且最新可见版本不是删除标记的 KV
+func (t *MVCCTransaction) ScanPrefix(prefix []byte) ([]Entry, error) {
+	t.shared.mu.RLock()
+	defer t.shared.mu.RUnlock()
+
+	engine := t.shared.engine
+
+	entries := make([]Entry, 0)
+
+	// 当前正在聚合的 raw key 及其最新可见版本
+	var currentKey []byte
+	var currentValue []byte
+	var currentVisible bool
+
+	// flush 将 currentKey 的最新可见版本加入结果
+	flush := func() {
+		if currentVisible {
+			entries = append(entries, Entry{
+				Key:   currentKey,
+				Value: currentValue,
+			})
+		}
+	}
+
+	for raw, err := range engine.ScanPrefix(versionedKeyPrefix(prefix)) {
+		if err != nil {
+			return nil, err
+		}
+
+		decoded, err := decodeMvccKey(raw.Key)
+		if err != nil {
+			return nil, err
+		}
+
+		if !bytes.Equal(decoded.rawKey, currentKey) {
+			flush()
+			currentKey = decoded.rawKey
+			currentValue = nil
+			currentVisible = false
+		}
+
+		// 跳过当前事务开始之后创建的版本
+		if decoded.version > t.state.version {
+			continue
+		}
+
+		value, err := decodeVersionedValue(raw.Value)
+		if err != nil {
+			return nil, err
+		}
+
+		// 同一 raw key 的版本按升序排列，后出现的版本更新
+		currentValue = value
+		currentVisible = value != nil
+	}
+
+	flush()
+
 	return entries, nil
+}
+
+// decodeVersionedValue 解码版本数据
+//
+// 第一个字节是类型标记：
+//
+//	0 = 删除
+//	1 = 正常值，后续字节是实际 value
+func decodeVersionedValue(encoded []byte) ([]byte, error) {
+	if len(encoded) == 0 {
+		return nil, fmt.Errorf("storage: truncated versioned value")
+	}
+
+	switch encoded[0] {
+	case 0:
+		return nil, nil
+	case 1:
+		return bytes.Clone(encoded[1:]), nil
+	default:
+		return nil, fmt.Errorf("storage: invalid versioned value tag %d", encoded[0])
+	}
+}
+
+// write 更新/删除数据
+func (t *MVCCTransaction) write(rawKey []byte, value []byte, deleted bool) error {
+	t.shared.mu.Lock()
+	defer t.shared.mu.Unlock()
+
+	engine := t.shared.engine
+
+	// 如果当前活跃事务集合为空，就从next+1开始
+	fromVersion := t.state.version + 1
+	for av := range t.state.activeVersions {
+		fromVersion = min(fromVersion, av)
+	}
+	from := versionedKey(rawKey, fromVersion).encode()
+	maxKey := versionedKey(rawKey, ^version(0)).encode()
+	to := append(maxKey, 0)
+
+	// 只检查范围内最新的版本(最后一个)
+	//
+	// 如果最新版本不可见，说明：
+	//  1. 它来自当前事务开始时仍活跃的事务；或
+	//  2. 它来自当前事务开始后创建的新事务。
+	//
+	// 两种情况都属于写冲突。
+	for entry, err := range engine.ScanReverse(from, to) {
+		if err != nil {
+			return fmt.Errorf("storage: scanning versions for key %x: %w", rawKey, err)
+		}
+		key, err := decodeMvccKey(entry.Key)
+		if err != nil {
+			return err
+		}
+		if !t.state.isVisible(key.version) {
+			return fmt.Errorf("storage: write conflict")
+		}
+		break
+	}
+
+	// 将当前key 加入当前事务的写集合
+	// Commit 会删除该记录；
+	// Rollback 会根据该记录找到并删除当前事务写入的数据版本。
+	if err := engine.Set(transactionWriteKey(t.state.version, rawKey).encode(), nil); err != nil {
+		return fmt.Errorf("storage: recording transaction write: %w", err)
+	}
+
+	// 写入用户value
+
+	// 第一个字节区分删除标记和正常值：
+	//
+	//      0 = 删除
+	//      1 = 正常值，后续字节是实际 value
+	encodedValue := []byte{0}
+	if !deleted {
+		encodedValue[0] = 1
+		encodedValue = append(encodedValue, value...)
+	}
+
+	if err := t.shared.engine.Set(versionedKey(rawKey, t.state.version).encode(), encodedValue); err != nil {
+		return fmt.Errorf(
+			"storage: writing version %d for key %x: %w", t.state.version, rawKey, err)
+	}
+
+	return nil
 }
