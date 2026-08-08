@@ -94,6 +94,28 @@ func TestParserStatements(t *testing.T) {
 				}
 			},
 		},
+		{
+			name: "delete",
+			sql:  "DELETE FROM users WHERE id = 1;",
+			want: func(t *testing.T, statement Statement) {
+				deleteStatement, ok := statement.(DeleteStatement)
+				if !ok {
+					t.Fatalf("statement type = %T, want DeleteStatement", statement)
+				}
+
+				if deleteStatement.TableName != "users" {
+					t.Fatalf("table = %q, want users", deleteStatement.TableName)
+				}
+
+				if deleteStatement.Filter == nil {
+					t.Fatalf("filter is nil")
+				}
+
+				if deleteStatement.Filter.Column != "id" || deleteStatement.Filter.Value.Value != int64(1) {
+					t.Fatalf("filter = %#v", deleteStatement.Filter)
+				}
+			},
+		},
 	}
 
 	for _, tt := range tests {

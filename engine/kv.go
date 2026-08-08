@@ -189,6 +189,20 @@ func (t *KVTransaction) UpdateRow(table *schema.Table, oldPrimaryKey types.Value
 	return t.txn.Set(newKey, encoded)
 }
 
+func (t *KVTransaction) DeleteRow(table *schema.Table, primaryKey types.Value) error {
+	// 获取行 key
+	key, err := rowKey(table.Name, primaryKey)
+	if err != nil {
+		return err
+	}
+
+	if err := t.txn.Delete(key); err != nil {
+		return fmt.Errorf("engine: deleting row from table %q: %w", table.Name, err)
+	}
+
+	return nil
+}
+
 func (t *KVTransaction) ScanTable(tableName string, filter *executor.RowFilter) ([]types.Row, error) {
 	table, err := t.GetTable(tableName)
 	if err != nil {

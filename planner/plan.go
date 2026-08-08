@@ -50,6 +50,16 @@ type UpdateNode struct {
 
 func (UpdateNode) node() {}
 
+// DeleteNode 表示 DELETE 的执行计划
+//
+// Source 是一个 ScanNode，负责找出待删除的行
+type DeleteNode struct {
+	TableName string
+	Source    Node
+}
+
+func (DeleteNode) node() {}
+
 // Plan 一个完整的执行计划
 // 当前一个 SQL 语句对应一个根节点
 type Plan struct {
@@ -105,6 +115,20 @@ func Build(stmt parser.Statement) (Plan, error) {
 				Assignments: stmt.Assignments,
 			},
 		}, nil
+
+	case parser.DeleteStatement:
+		source := ScanNode{
+			TableName: stmt.TableName,
+			Filter:    stmt.Filter,
+		}
+
+		return Plan{
+			Node: DeleteNode{
+				TableName: stmt.TableName,
+				Source:    source,
+			},
+		}, nil
+
 	default:
 		return Plan{}, fmt.Errorf(
 			"planner: statement type %T is not implemented",

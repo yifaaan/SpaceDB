@@ -40,6 +40,10 @@ func (*fakeTransaction) UpdateRow(*schema.Table, types.Value, types.Row) error {
 	return nil
 }
 
+func (*fakeTransaction) DeleteRow(*schema.Table, types.Value) error {
+	return nil
+}
+
 func (*fakeTransaction) ScanTable(string, *executor.RowFilter) ([]types.Row, error) {
 	return nil, nil
 }

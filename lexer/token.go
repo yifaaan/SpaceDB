@@ -34,6 +34,7 @@ const (
 	KeywordUpdate  Keyword = "UPDATE"
 	KeywordSet     Keyword = "SET"
 	KeywordWhere   Keyword = "WHERE"
+	KeywordDelete  Keyword = "DELETE"
 )
 
 type Kind uint8
@@ -71,7 +72,7 @@ func KeywordFromIdentifier(identifier string) (Keyword, bool) {
 		KeywordFrom, KeywordInsert, KeywordInto, KeywordValues,
 		KeywordTrue, KeywordFalse, KeywordDefault, KeywordNot,
 		KeywordNull, KeywordPrimary, KeywordKey,
-		KeywordUpdate, KeywordSet, KeywordWhere:
+		KeywordUpdate, KeywordSet, KeywordWhere, KeywordDelete:
 		return keyword, true
 	default:
 		return "", false

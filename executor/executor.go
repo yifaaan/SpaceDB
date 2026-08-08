@@ -28,12 +28,19 @@ type InsertResult struct {
 
 func (InsertResult) resultSet() {}
 
-// UpdateResult UPDATE 的执行结果。
+// UpdateResult UPDATE 更新的行数
 type UpdateResult struct {
 	Count int
 }
 
 func (UpdateResult) resultSet() {}
+
+// DeleteResult DELETE 删除的行数
+type DeleteResult struct {
+	Count int
+}
+
+func (DeleteResult) resultSet() {}
 
 // RowsResult 查询返回的多行数据
 type RowsResult struct {
@@ -223,6 +230,51 @@ func (u UpdateExecutor) Execute(txn Transaction) (ResultSet, error) {
 	return UpdateResult{Count: updated}, nil
 }
 
+// DeleteExecutor 对应 planner.DeleteNode
+//
+// Source 先扫描出符合 WHERE 条件的行
+// 然后根据每一行的主键执行删除操作
+type DeleteExecutor struct {
+	TableName string
+	Source    Executor
+}
+
+func (d DeleteExecutor) Execute(txn Transaction) (ResultSet, error) {
+	table, err := txn.GetTable(d.TableName)
+	if err != nil {
+		return nil, fmt.Errorf("executor: loading table %q: %w", d.TableName, err)
+	}
+	if table == nil {
+		return nil, fmt.Errorf("executor: table %q does not exist", d.TableName)
+	}
+
+	sourceResult, err := d.Source.Execute(txn)
+	if err != nil {
+		return nil, err
+	}
+
+	rowsResult, ok := sourceResult.(RowsResult)
+	if !ok {
+		return nil, fmt.Errorf("executor: DELETE source returned %T, want RowsResult", sourceResult)
+	}
+
+	deleted := 0
+
+	for i, row := range rowsResult.Rows {
+		pk, err := table.PrimaryKeyValue(row)
+		if err != nil {
+			return nil, fmt.Errorf("executor: reading primary key from row %d: %w", i+1, err)
+		}
+
+		if err := txn.DeleteRow(table, pk); err != nil {
+			return nil, fmt.Errorf("executor: deleting raw %d: %w", i+1, err)
+		}
+
+		deleted++
+	}
+	return DeleteResult{Count: deleted}, nil
+}
+
 // Build 根据 plan 节点创建对应的 Executor
 func Build(node planner.Node) (Executor, error) {
 	switch node := node.(type) {
@@ -244,6 +296,16 @@ func Build(node planner.Node) (Executor, error) {
 			TableName:   node.TableName,
 			Source:      source,
 			Assignments: node.Assignments,
+		}, nil
+
+	case planner.DeleteNode:
+		source, err := Build(node.Source)
+		if err != nil {
+			return nil, fmt.Errorf("executor: building DELETE source: %w", err)
+		}
+		return DeleteExecutor{
+			TableName: node.TableName,
+			Source:    source,
 		}, nil
 
 	default:

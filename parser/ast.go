@@ -82,6 +82,15 @@ type UpdateStatement struct {
 	Filter *EqualityFilter
 }
 
+// DeleteStatement 表示 DELETE FROM 语句
+//
+// Filter 为 nil 表示删除整张表；
+// 非 nil 时只删除满足 column = literal 的行
+type DeleteStatement struct {
+	TableName string
+	Filter    *EqualityFilter
+}
+
 type Statement interface {
 	statement()
 }
@@ -90,11 +99,13 @@ func (CreateTableStatement) statement() {}
 func (InsertStatement) statement()      {}
 func (SelectStatement) statement()      {}
 func (UpdateStatement) statement()      {}
+func (DeleteStatement) statement()      {}
 
 var _ Statement = CreateTableStatement{}
 var _ Statement = InsertStatement{}
 var _ Statement = SelectStatement{}
 var _ Statement = UpdateStatement{}
+var _ Statement = DeleteStatement{}
 
 // keywordDataType 把类型关键字归一化为 DataType
 // INT / INTEGER → Integer；BOOL / BOOLEAN → Boolean；

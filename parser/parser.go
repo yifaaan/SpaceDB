@@ -99,6 +99,8 @@ func (p *Parser) parseStatement() (Statement, error) {
 		return p.parseInsert()
 	case lexer.KeywordUpdate:
 		return p.parseUpdate()
+	case lexer.KeywordDelete:
+		return p.parseDelete()
 	default:
 		return nil, errors.New("parser: unsupported statement")
 	}
@@ -297,38 +299,44 @@ func (p *Parser) parseUpdate() (Statement, error) {
 		}
 	}
 
-	var filter *EqualityFilter
-
-	current := p.peek()
-	if current.Kind == lexer.KeywordKind && current.Keyword == lexer.KeywordWhere {
-		if err := p.expectKeyword(lexer.KeywordWhere); err != nil {
-			return nil, err
-		}
-
-		columnName, err := p.expectIdentifier()
-		if err != nil {
-			return nil, err
-		}
-
-		if err := p.expect(lexer.Equal); err != nil {
-			return nil, err
-		}
-
-		value, err := p.parseExpression()
-		if err != nil {
-			return nil, err
-		}
-
-		filter = &EqualityFilter{
-			Column: columnName,
-			Value:  value,
-		}
+	// WHERE
+	filter, err := p.parseWhereFilter()
+	if err != nil {
+		return nil, err
 	}
 
 	return UpdateStatement{
 		TableName:   tableName,
 		Assignments: assignments,
 		Filter:      filter,
+	}, nil
+}
+
+// parseDelete 解析 DELETE 语句
+//
+//	`DELETE FROM <table> [WHERE <column> = <literal>]`
+func (p *Parser) parseDelete() (Statement, error) {
+	if err := p.expectKeyword(lexer.KeywordDelete); err != nil {
+		return nil, err
+	}
+
+	if err := p.expectKeyword(lexer.KeywordFrom); err != nil {
+		return nil, err
+	}
+
+	tableName, err := p.expectIdentifier()
+	if err != nil {
+		return nil, err
+	}
+
+	filter, err := p.parseWhereFilter()
+	if err != nil {
+		return nil, err
+	}
+
+	return DeleteStatement{
+		TableName: tableName,
+		Filter:    filter,
 	}, nil
 }
 
@@ -418,4 +426,36 @@ func (p *Parser) parseExpression() (Expression, error) {
 	default:
 		return Expression{}, fmt.Errorf("parser: expected constant expression, got %s at %s", lexer.DescribeToken(token), lexer.DescribePosition(token.Offset))
 	}
+}
+
+// parseWhereFilter 解析 WHERE column = literal
+// 目前只支持单个赋值条件
+func (p *Parser) parseWhereFilter() (*EqualityFilter, error) {
+	current := p.peek()
+	if current.Kind != lexer.KeywordKind || current.Keyword != lexer.KeywordWhere {
+		return nil, nil
+	}
+
+	if err := p.expectKeyword(lexer.KeywordWhere); err != nil {
+		return nil, err
+	}
+
+	c, err := p.expectIdentifier()
+	if err != nil {
+		return nil, err
+	}
+
+	if err := p.expect(lexer.Equal); err != nil {
+		return nil, err
+	}
+
+	v, err := p.parseExpression()
+	if err != nil {
+		return nil, err
+	}
+
+	return &EqualityFilter{
+		Column: c,
+		Value:  v,
+	}, nil
 }

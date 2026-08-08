@@ -21,10 +21,13 @@ type Transaction interface {
 	// CreateRow 向指定表写入一行
 	CreateRow(tableName string, row types.Row) error
 
-	// UpdateRow 使用旧主键定位原行，并写入更新后的行。
+	// UpdateRow 使用旧主键定位原行，并写入更新后的行
 	UpdateRow(table *schema.Table, oldPrimaryKey types.Value, row types.Row) error
 
-	// ScanTable 返回指定表当前可见且满足可选过滤条件的行。
+	// DeleteRow 删除指定主键对应的行
+	DeleteRow(table *schema.Table, primaryKey types.Value) error
+
+	// ScanTable 返回指定表当前可见且满足可选过滤条件的行
 	ScanTable(tableName string, filter *RowFilter) ([]types.Row, error)
 
 	// CreateTable 创建表结构
