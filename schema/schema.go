@@ -34,8 +34,14 @@ func (t Table) Validate() error {
 
 	primaryKeys := 0
 	for _, column := range t.Columns {
-		if column.PrimaryKey {
-			primaryKeys++
+		if !column.PrimaryKey {
+			continue
+		}
+
+		primaryKeys++
+
+		if column.Nullable {
+			return fmt.Errorf("schema: primary key %q cannot be nullable in table %q", column.Name, t.Name)
 		}
 	}
 

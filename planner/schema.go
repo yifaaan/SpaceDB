@@ -15,8 +15,8 @@ func tableFromCreateStatement(stmt parser.CreateTableStatement) (schema.Table, e
 	}
 
 	for _, astColumn := range stmt.Columns {
-		// 没写 NULL 或 NOT NULL 时，默认允许 NULL
-		nullable := true
+		// 非主键列默认允许 NULL
+		nullable := !astColumn.PrimaryKey
 		if astColumn.Nullable != nil {
 			nullable = *astColumn.Nullable
 		}

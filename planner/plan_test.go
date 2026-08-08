@@ -2,7 +2,6 @@ package planner
 
 import (
 	"spacedb/parser"
-	"spacedb/types"
 	"testing"
 )
 
@@ -35,18 +34,13 @@ func TestBuildCreateTablePlan(t *testing.T) {
 		t.Fatalf("column count = %d, want 2", len(node.Schema.Columns))
 	}
 
-	// id 没有写 NOT NULL，因此默认可空，并补 NULL 默认值
-	id := node.Schema.Columns[0]
-	if !id.Nullable || id.Default == nil || id.Default.Kind != types.ValueNull {
-		t.Fatalf("id column = %#v", id)
-	}
-
 	// name 明确 NOT NULL，则没有 DEFAULT
 	name := node.Schema.Columns[1]
 	if name.Nullable || name.Default != nil {
 		t.Fatalf("name column = %#v", name)
 	}
 
+	id := node.Schema.Columns[0]
 	if !id.PrimaryKey {
 		t.Fatalf("id primary key = false, want true")
 	}
