@@ -121,7 +121,52 @@ func (p *Parser) parseSelect() (Statement, error) {
 	if err != nil {
 		return nil, err
 	}
-	return SelectStatement{TableName: tableName}, nil
+
+	// ORDER BY
+	orderBy := make([]OrderBy, 0, 4)
+	current := p.peek()
+	if current.Kind == lexer.KeywordKind && current.Keyword == lexer.KeywordOrder {
+		_ = p.next()
+		// By
+		if err := p.expectKeyword(lexer.KeywordBy); err != nil {
+			return nil, err
+		}
+
+		for {
+			columnName, err := p.expectIdentifier()
+			if err != nil {
+				return nil, err
+			}
+
+			direction := OrderAscending
+
+			current := p.peek()
+			if current.Kind == lexer.KeywordKind {
+				switch current.Keyword {
+				case lexer.KeywordAsc:
+					_ = p.next()
+					direction = OrderAscending
+				case lexer.KeywordDesc:
+					_ = p.next()
+					direction = OrderDescending
+				}
+			}
+
+			orderBy = append(orderBy, OrderBy{
+				Column:    columnName,
+				Direction: direction,
+			})
+
+			// comma
+			if p.peek().Kind != lexer.Comma {
+				break
+			}
+			if err := p.expect(lexer.Comma); err != nil {
+				return nil, err
+			}
+		}
+	}
+	return SelectStatement{TableName: tableName, OrderBy: orderBy}, nil
 }
 
 // parseCreateTable 解析 CREATE TABLE：

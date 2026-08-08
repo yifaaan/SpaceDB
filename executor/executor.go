@@ -156,6 +156,17 @@ func (s ScanExecutor) Execute(txn Transaction) (ResultSet, error) {
 	}, nil
 }
 
+// OrderExecutor 对应 planner.OrderNode
+type OrderExecutor struct {
+	// Source 产生待排序的 RowsResult
+	Source  Executor
+	OrderBy []parser.OrderBy
+}
+
+func (o OrderExecutor) Execute(txn Transaction) (ResultSet, error) {
+	return nil, fmt.Errorf("executor: ORDER BY sorting is not implemented")
+}
+
 // UpdateExecutor 对应 planner.UpdateNode。
 type UpdateExecutor struct {
 	TableName   string
@@ -306,6 +317,17 @@ func Build(node planner.Node) (Executor, error) {
 		return DeleteExecutor{
 			TableName: node.TableName,
 			Source:    source,
+		}, nil
+
+	case planner.OrderNode:
+		source, err := Build(node.Source)
+		if err != nil {
+			return nil, fmt.Errorf("executor: building ORDER BY source: %w", err)
+		}
+
+		return OrderExecutor{
+			Source:  source,
+			OrderBy: node.OrderBy,
 		}, nil
 
 	default:

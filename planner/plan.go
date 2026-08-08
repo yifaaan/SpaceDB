@@ -38,6 +38,29 @@ type ScanNode struct {
 
 func (ScanNode) node() {}
 
+// OrderNode ORDER BY 排序操作
+//
+// 如：
+//
+//	SELECT * FROM users ORDER BY score DESC;
+//
+// 生成：
+//
+//	OrderNode{
+//	    Source: ScanNode{TableName: "users"},
+//	    OrderBy: []parser.OrderBy{
+//	        {Column: "score", Direction: parser.OrderDescending},
+//	    },
+//	}
+type OrderNode struct {
+	// Source 是被排序的数据源，通常是 ScanNode
+	Source Node
+
+	OrderBy []parser.OrderBy
+}
+
+func (OrderNode) node() {}
+
 // UpdateNode 表示 UPDATE 的执行计划
 //
 // Source 通常是一个 ScanNode，负责找出需要更新的行
@@ -95,10 +118,20 @@ func Build(stmt parser.Statement) (Plan, error) {
 		}, nil
 
 	case parser.SelectStatement:
+		// SELECT 首先要扫描行数据
+		source := ScanNode{
+			TableName: stmt.TableName,
+			Filter:    nil,
+		}
+
+		if len(stmt.OrderBy) == 0 {
+			return Plan{Node: source}, nil
+		}
+
 		return Plan{
-			Node: ScanNode{
-				TableName: stmt.TableName,
-				Filter:    nil,
+			Node: OrderNode{
+				Source:  source,
+				OrderBy: stmt.OrderBy,
 			},
 		}, nil
 
