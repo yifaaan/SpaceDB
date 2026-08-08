@@ -56,9 +56,38 @@ type InsertStatement struct {
 	Values    [][]Expression
 }
 
+type OrderDirection uint8
+
+const (
+	// OrderAscending 升序
+	//
+	// 没有显式指定 ASC 或 DESC 时，默认使用升序
+	OrderAscending OrderDirection = iota
+
+	// OrderDescending 降序
+	OrderDescending
+)
+
+// OrderBy ORDER BY 中的一项排序
+//
+//	ORDER BY score DESC
+//
+// 表示：
+//
+//	OrderBy{
+//	    Column:    "score",
+//	    Direction: OrderDescending,
+//	}
+type OrderBy struct {
+	Column    string
+	Direction OrderDirection
+}
+
 // SelectStatement SELECT 语句的 AST
 type SelectStatement struct {
 	TableName string
+
+	OrderBy []OrderBy
 }
 
 // EqualityFilter 表示 WHERE 条件：

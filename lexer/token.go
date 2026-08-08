@@ -35,6 +35,13 @@ const (
 	KeywordSet     Keyword = "SET"
 	KeywordWhere   Keyword = "WHERE"
 	KeywordDelete  Keyword = "DELETE"
+	// ORDER BY
+	KeywordOrder Keyword = "ORDER"
+	KeywordBy    Keyword = "BY"
+
+	// SORT
+	KeywordAsc  Keyword = "ASC"
+	KeywordDesc Keyword = "DESC"
 )
 
 type Kind uint8
@@ -72,7 +79,8 @@ func KeywordFromIdentifier(identifier string) (Keyword, bool) {
 		KeywordFrom, KeywordInsert, KeywordInto, KeywordValues,
 		KeywordTrue, KeywordFalse, KeywordDefault, KeywordNot,
 		KeywordNull, KeywordPrimary, KeywordKey,
-		KeywordUpdate, KeywordSet, KeywordWhere, KeywordDelete:
+		KeywordUpdate, KeywordSet, KeywordWhere, KeywordDelete,
+		KeywordOrder, KeywordBy, KeywordAsc, KeywordDesc:
 		return keyword, true
 	default:
 		return "", false
