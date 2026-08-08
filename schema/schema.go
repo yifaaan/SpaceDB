@@ -34,14 +34,26 @@ func (t Table) Validate() error {
 
 	primaryKeys := 0
 	for _, column := range t.Columns {
-		if !column.PrimaryKey {
+		// 统计主键数量，检查主键是否被声明为可空
+		if column.PrimaryKey {
+			primaryKeys++
+
+			if column.Nullable {
+				return fmt.Errorf("schema: primary key %q cannot be nullable in table %q", column.Name, t.Name)
+			}
+		}
+
+		if column.Default == nil {
 			continue
 		}
 
-		primaryKeys++
+		defaultType, hasType := column.Default.DataType()
+		if !hasType {
+			continue
+		}
 
-		if column.Nullable {
-			return fmt.Errorf("schema: primary key %q cannot be nullable in table %q", column.Name, t.Name)
+		if defaultType != column.DataType {
+			return fmt.Errorf("schema: default value for column %q has type %d, want %d", column.Name, defaultType, column.DataType)
 		}
 	}
 
