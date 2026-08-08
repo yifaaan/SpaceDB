@@ -42,6 +42,9 @@ const (
 	// SORT
 	KeywordAsc  Keyword = "ASC"
 	KeywordDesc Keyword = "DESC"
+
+	KeywordLimit  Keyword = "LIMIT"
+	KeywordOffset Keyword = "OFFSET"
 )
 
 type Kind uint8
@@ -80,7 +83,8 @@ func KeywordFromIdentifier(identifier string) (Keyword, bool) {
 		KeywordTrue, KeywordFalse, KeywordDefault, KeywordNot,
 		KeywordNull, KeywordPrimary, KeywordKey,
 		KeywordUpdate, KeywordSet, KeywordWhere, KeywordDelete,
-		KeywordOrder, KeywordBy, KeywordAsc, KeywordDesc:
+		KeywordOrder, KeywordBy, KeywordAsc, KeywordDesc,
+		KeywordLimit, KeywordOffset:
 		return keyword, true
 	default:
 		return "", false

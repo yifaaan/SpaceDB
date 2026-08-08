@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"spacedb/parser"
 	"spacedb/schema"
+	"spacedb/types"
 )
 
 // Node 执行节点，Planner 的构建产物
@@ -60,6 +61,26 @@ type OrderNode struct {
 }
 
 func (OrderNode) node() {}
+
+type LimitNode struct {
+	// Source 执行查询、排序或 OFFSET
+	Source Node
+	Limit  int
+}
+
+func (LimitNode) node() {}
+
+// OFFSET 必须在 LIMIT 之前执行
+//
+//	SELECT ... LIMIT 10 OFFSET 20
+//
+//	Scan -> Order -> Offset -> Limit
+type OffsetNode struct {
+	Source Node
+	Offset int
+}
+
+func (OffsetNode) node() {}
 
 // UpdateNode 表示 UPDATE 的执行计划
 //
@@ -119,21 +140,65 @@ func Build(stmt parser.Statement) (Plan, error) {
 
 	case parser.SelectStatement:
 		// SELECT 首先要扫描行数据
-		source := ScanNode{
+		var node Node = ScanNode{
 			TableName: stmt.TableName,
 			Filter:    nil,
 		}
 
-		if len(stmt.OrderBy) == 0 {
-			return Plan{Node: source}, nil
+		if len(stmt.OrderBy) != 0 {
+			node = OrderNode{
+				Source:  node,
+				OrderBy: stmt.OrderBy,
+			}
 		}
 
-		return Plan{
-			Node: OrderNode{
-				Source:  source,
-				OrderBy: stmt.OrderBy,
-			},
-		}, nil
+		// OFFSET
+		if stmt.Offset != nil {
+			v, err := ValueFromExpression(*stmt.Offset)
+			if err != nil {
+				return Plan{}, fmt.Errorf("planner: converting OFFSET value: %w", err)
+			}
+
+			if v.Kind != types.ValueInteger || v.Integer < 0 {
+				return Plan{}, fmt.Errorf("planner: OFFSET must be a non-negative integer")
+			}
+
+			if uint64(v.Integer) > uint64(^uint(0)>>1) {
+				return Plan{}, fmt.Errorf("planner: OFFSET is too large")
+			}
+
+			node = OffsetNode{
+				Source: node,
+				Offset: int(v.Integer),
+			}
+		}
+
+		// LIMIT
+		if stmt.Limit != nil {
+			v, err := ValueFromExpression(*stmt.Limit)
+			if err != nil {
+				return Plan{}, fmt.Errorf("planner: converting LIMIT value: %w", err)
+			}
+
+			if v.Kind != types.ValueInteger || v.Integer < 0 {
+				return Plan{}, fmt.Errorf(
+					"planner: LIMIT must be a non-negative integer",
+				)
+			}
+
+			if uint64(v.Integer) > uint64(^uint(0)>>1) {
+				return Plan{}, fmt.Errorf(
+					"planner: LIMIT is too large",
+				)
+			}
+
+			node = LimitNode{
+				Source: node,
+				Limit:  int(v.Integer),
+			}
+		}
+
+		return Plan{Node: node}, nil
 
 	case parser.UpdateStatement:
 		source := ScanNode{

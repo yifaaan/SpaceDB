@@ -88,6 +88,10 @@ type SelectStatement struct {
 	TableName string
 
 	OrderBy []OrderBy
+
+	Limit *Expression
+
+	Offset *Expression
 }
 
 // EqualityFilter 表示 WHERE 条件：

@@ -225,6 +225,61 @@ func (o OrderExecutor) Execute(txn Transaction) (ResultSet, error) {
 	}, nil
 }
 
+type OffsetExecutor struct {
+	Source Executor
+	Offset int
+}
+
+func (o OffsetExecutor) Execute(txn Transaction) (ResultSet, error) {
+	sourceResult, err := o.Source.Execute(txn)
+	if err != nil {
+		return nil, fmt.Errorf("executor: executing OFFSET source: %w", err)
+	}
+
+	rowsResult, ok := sourceResult.(RowsResult)
+	if !ok {
+		return nil, fmt.Errorf("executor: OFFSET source returned %T, want RowsResult", sourceResult)
+	}
+
+	start := o.Offset
+	if start > len(rowsResult.Rows) {
+		start = len(rowsResult.Rows)
+	}
+
+	return RowsResult{
+		Columns: rowsResult.Columns,
+		Rows:    rowsResult.Rows[start:],
+	}, nil
+}
+
+type LimitExecutor struct {
+	Source Executor
+	Limit  int
+}
+
+func (l LimitExecutor) Execute(txn Transaction) (ResultSet, error) {
+	sourceResult, err := l.Source.Execute(txn)
+	if err != nil {
+		return nil, fmt.Errorf("executor: executing LIMIT source: %w", err)
+	}
+
+	rowsResult, ok := sourceResult.(RowsResult)
+	if !ok {
+		return nil, fmt.Errorf("executor: LIMIT source returned %T, want RowsResult", sourceResult)
+	}
+
+	// LIMIT 大于结果总数时，返回全部结果
+	end := l.Limit
+	if end > len(rowsResult.Rows) {
+		end = len(rowsResult.Rows)
+	}
+
+	return RowsResult{
+		Columns: rowsResult.Columns,
+		Rows:    rowsResult.Rows[:end],
+	}, nil
+}
+
 // UpdateExecutor 对应 planner.UpdateNode。
 type UpdateExecutor struct {
 	TableName   string
@@ -386,6 +441,27 @@ func Build(node planner.Node) (Executor, error) {
 		return OrderExecutor{
 			Source:  source,
 			OrderBy: node.OrderBy,
+		}, nil
+
+	case planner.OffsetNode:
+		source, err := Build(node.Source)
+		if err != nil {
+			return nil, fmt.Errorf("executor: building OFFSET source: %w", err)
+		}
+		return OffsetExecutor{
+			Source: source,
+			Offset: node.Offset,
+		}, nil
+
+	case planner.LimitNode:
+		source, err := Build(node.Source)
+		if err != nil {
+			return nil, fmt.Errorf("executor: building LIMIT source: %w", err)
+		}
+
+		return LimitExecutor{
+			Source: source,
+			Limit:  node.Limit,
 		}, nil
 
 	default:

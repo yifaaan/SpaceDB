@@ -166,7 +166,41 @@ func (p *Parser) parseSelect() (Statement, error) {
 			}
 		}
 	}
-	return SelectStatement{TableName: tableName, OrderBy: orderBy}, nil
+
+	// LIMIT
+	var limit *Expression
+	current = p.peek()
+	if current.Kind == lexer.KeywordKind && current.Keyword == lexer.KeywordLimit {
+		_ = p.next()
+
+		exp, err := p.parseExpression()
+		if err != nil {
+			return nil, fmt.Errorf("parser: parsing LIMIT value: %w", err)
+		}
+
+		limit = &exp
+	}
+
+	// OFFSET
+	var offset *Expression
+	current = p.peek()
+	if current.Kind == lexer.KeywordKind && current.Keyword == lexer.KeywordOffset {
+		_ = p.next()
+
+		exp, err := p.parseExpression()
+		if err != nil {
+			return nil, fmt.Errorf("parser: parsing OFFSET value: %w", err)
+		}
+
+		offset = &exp
+	}
+
+	return SelectStatement{
+		TableName: tableName,
+		OrderBy:   orderBy,
+		Limit:     limit,
+		Offset:    offset,
+	}, nil
 }
 
 // parseCreateTable 解析 CREATE TABLE：
