@@ -164,7 +164,65 @@ type OrderExecutor struct {
 }
 
 func (o OrderExecutor) Execute(txn Transaction) (ResultSet, error) {
-	return nil, fmt.Errorf("executor: ORDER BY sorting is not implemented")
+	// 先扫描数据
+	sourceResult, err := o.Source.Execute(txn)
+	if err != nil {
+		return nil, fmt.Errorf("executor: executing ORDER BY source: %w", err)
+	}
+
+	rowsResult, ok := sourceResult.(RowsResult)
+	if !ok {
+		return nil, fmt.Errorf("executor: ORDER BY source returned %T, want RowsResult", sourceResult)
+	}
+
+	// 将 ORDER BY item的列名转成 idx
+	columnIdxs := make([]int, len(o.OrderBy))
+	for i, order := range o.OrderBy {
+		targetIdx := slices.Index(rowsResult.Columns, order.Column)
+		if targetIdx == -1 {
+			return nil, fmt.Errorf("executor: ORDER BY column %q does not exist", order.Column)
+		}
+
+		columnIdxs[i] = targetIdx
+	}
+
+	rows := slices.Clone(rowsResult.Rows)
+
+	var compareErr error
+
+	slices.SortStableFunc(rows, func(a, b types.Row) int {
+		if compareErr != nil {
+			return 0
+		}
+
+		for i, order := range o.OrderBy {
+			targetIdx := columnIdxs[i]
+
+			cmp, err := a[targetIdx].Compare(b[targetIdx])
+			if err != nil {
+				compareErr = fmt.Errorf("executor: comparing ORDER BY column %q: %w", order.Column, err)
+				return 0
+			}
+			if cmp == 0 {
+				continue
+			}
+
+			if order.Direction == parser.OrderDescending {
+				return -cmp
+			}
+			return cmp
+		}
+		return 0
+	})
+
+	if compareErr != nil {
+		return nil, compareErr
+	}
+
+	return RowsResult{
+		Columns: rowsResult.Columns,
+		Rows:    rows,
+	}, nil
 }
 
 // UpdateExecutor 对应 planner.UpdateNode。
