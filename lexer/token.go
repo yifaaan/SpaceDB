@@ -45,6 +45,9 @@ const (
 
 	KeywordLimit  Keyword = "LIMIT"
 	KeywordOffset Keyword = "OFFSET"
+
+	// AS 为 SELECT 投影列指定别名
+	KeywordAs Keyword = "AS"
 )
 
 type Kind uint8
@@ -84,7 +87,7 @@ func KeywordFromIdentifier(identifier string) (Keyword, bool) {
 		KeywordNull, KeywordPrimary, KeywordKey,
 		KeywordUpdate, KeywordSet, KeywordWhere, KeywordDelete,
 		KeywordOrder, KeywordBy, KeywordAsc, KeywordDesc,
-		KeywordLimit, KeywordOffset:
+		KeywordLimit, KeywordOffset, KeywordAs:
 		return keyword, true
 	default:
 		return "", false

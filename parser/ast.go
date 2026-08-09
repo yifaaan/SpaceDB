@@ -14,12 +14,26 @@ const (
 	IntegerLiteral
 	FloatLiteral
 	StringLiteral
+
+	// ColumnReference 表示 SELECT 中引用某个表字段
+	//
+	// 如 SELECT name FROM users 中的 name
+	ColumnReference
 )
 
-// Expression 常量表达式
+// Expression SQL 表达式
+//
+// Value 的实际类型取决于 Kind：
+//
+//	Null             -> nil
+//	BooleanLiteral   -> bool
+//	IntegerLiteral   -> int64
+//	FloatLiteral     -> float64
+//	StringLiteral    -> string
+//	ColumnReference  -> string，保存列名
 type Expression struct {
 	Kind  ExpressionKind
-	Value any // nil / bool / int64 / float64 / string
+	Value any // nil / bool / int64 / float64 / string / string
 }
 
 // NullExpression 构造 NULL 常量表达式
@@ -83,9 +97,25 @@ type OrderBy struct {
 	Direction OrderDirection
 }
 
+// SelectItem 表示 SELECT 后的一项投影。
+//
+// 如：
+//
+//	SELECT name AS username
+//
+// 表示为 Expression = name，Alias = username
+type SelectItem struct {
+	Expression Expression
+
+	Alias *string
+}
+
 // SelectStatement SELECT 语句的 AST
 type SelectStatement struct {
 	TableName string
+
+	// 空切片表示 SELECT *
+	SelectItems []SelectItem
 
 	OrderBy []OrderBy
 
