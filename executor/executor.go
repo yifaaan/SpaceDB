@@ -286,13 +286,111 @@ type ProjectionExecutor struct {
 }
 
 func (p ProjectionExecutor) Execute(txn Transaction) (ResultSet, error) {
-	if p.Source == nil {
-		return nil, fmt.Errorf("executor: projection source is nil")
+	sourceResult, err := p.Source.Execute(txn)
+	if err != nil {
+		return nil, fmt.Errorf("executor: executing projection source: %w", err)
 	}
 
-	return nil, fmt.Errorf(
-		"executor: projection execution is not implemented",
-	)
+	rowsResult, ok := sourceResult.(RowsResult)
+	if !ok {
+		return nil, fmt.Errorf("executor: projection source returned %T, want RowsResult", sourceResult)
+	}
+
+	// 每个投影项提前解析一次。
+	//
+	// columnIndex >= 0 表示从原始 Row 中读取指定列
+	// columnIndex == -1 表示每一行都使用 constant
+	items := make([]struct {
+		columnIndex int
+		constant    types.Value
+		outputName  string
+	}, 0, len(p.Items))
+
+	for _, item := range p.Items {
+		outputName := "?column?"
+		if item.Alias != nil {
+			outputName = *item.Alias
+		}
+
+		if item.Expression.Kind == parser.ColumnReference {
+			columnName, ok := item.Expression.Value.(string)
+			if !ok {
+				return nil, fmt.Errorf("executor: column reference contains %T", item.Expression.Value)
+			}
+
+			columnIndex := slices.Index(rowsResult.Columns, columnName)
+			if columnIndex < 0 {
+				return nil, fmt.Errorf("executor: projection column %q does not exist", columnName)
+			}
+
+			// 没有 AS 时，结果列名沿用原始列名
+			if item.Alias == nil {
+				outputName = columnName
+			}
+
+			items = append(items, struct {
+				columnIndex int
+				constant    types.Value
+				outputName  string
+			}{
+				columnIndex: columnIndex,
+				outputName:  outputName,
+			})
+			continue
+		}
+
+		// 非列引用表达式按照常量处理。
+		//
+		// 例如 SELECT 100 AS fixed_score FROM users
+		value, err := planner.ValueFromExpression(item.Expression)
+		if err != nil {
+			return nil, fmt.Errorf("executor: converting projection expression: %w", err)
+		}
+
+		items = append(items, struct {
+			columnIndex int
+			constant    types.Value
+			outputName  string
+		}{
+			columnIndex: -1,
+			constant:    value,
+			outputName:  outputName,
+		})
+	}
+
+	columns := make([]string, len(items))
+	for index, item := range items {
+		columns[index] = item.outputName
+	}
+
+	rows := make([]types.Row, 0, len(rowsResult.Rows))
+	for rowIndex, sourceRow := range rowsResult.Rows {
+		projectedRow := make(types.Row, 0, len(items))
+
+		for _, item := range items {
+			if item.columnIndex == -1 {
+				projectedRow = append(projectedRow, item.constant)
+				continue
+			}
+
+			if item.columnIndex >= len(sourceRow) {
+				return nil, fmt.Errorf(
+					"executor: row %d does not contain projected column index %d", rowIndex+1, item.columnIndex)
+			}
+
+			projectedRow = append(
+				projectedRow,
+				sourceRow[item.columnIndex],
+			)
+		}
+
+		rows = append(rows, projectedRow)
+	}
+
+	return RowsResult{
+		Columns: columns,
+		Rows:    rows,
+	}, nil
 }
 
 // UpdateExecutor 对应 planner.UpdateNode。
