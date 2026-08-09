@@ -82,6 +82,23 @@ type OffsetNode struct {
 
 func (OffsetNode) node() {}
 
+// ProjectionNode 表示 SELECT 的列投影
+//
+// Source 负责产生完整的行数据，ProjectionNode 最后只保留
+// SELECT 指定的列或常量表达式，并处理 AS 别名
+//
+// 如：
+//
+//	SELECT name AS username, score FROM users;
+//
+// Items 中会保存 name 和 score 两个投影项
+type ProjectionNode struct {
+	Source Node
+	Items  []parser.SelectItem
+}
+
+func (ProjectionNode) node() {}
+
 // UpdateNode 表示 UPDATE 的执行计划
 //
 // Source 通常是一个 ScanNode，负责找出需要更新的行
@@ -195,6 +212,13 @@ func Build(stmt parser.Statement) (Plan, error) {
 			node = LimitNode{
 				Source: node,
 				Limit:  int(v.Integer),
+			}
+		}
+
+		if len(stmt.SelectItems) != 0 {
+			node = ProjectionNode{
+				Source: node,
+				Items:  stmt.SelectItems,
 			}
 		}
 

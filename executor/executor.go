@@ -280,6 +280,21 @@ func (l LimitExecutor) Execute(txn Transaction) (ResultSet, error) {
 	}, nil
 }
 
+type ProjectionExecutor struct {
+	Source Executor
+	Items  []parser.SelectItem
+}
+
+func (p ProjectionExecutor) Execute(txn Transaction) (ResultSet, error) {
+	if p.Source == nil {
+		return nil, fmt.Errorf("executor: projection source is nil")
+	}
+
+	return nil, fmt.Errorf(
+		"executor: projection execution is not implemented",
+	)
+}
+
 // UpdateExecutor 对应 planner.UpdateNode。
 type UpdateExecutor struct {
 	TableName   string
@@ -462,6 +477,19 @@ func Build(node planner.Node) (Executor, error) {
 		return LimitExecutor{
 			Source: source,
 			Limit:  node.Limit,
+		}, nil
+
+	case planner.ProjectionNode:
+		// Projection 的数据来源可能是 Scan、Order、Offset 或 Limit
+		// 因此继续通过 Build 递归构造，不能直接假设它是 ScanNode
+		source, err := Build(node.Source)
+		if err != nil {
+			return nil, fmt.Errorf("executor: building projection source: %w", err)
+		}
+
+		return ProjectionExecutor{
+			Source: source,
+			Items:  node.Items,
 		}, nil
 
 	default:
