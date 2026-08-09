@@ -111,6 +111,46 @@ func (p *Parser) parseSelect() (Statement, error) {
 	if err := p.expectKeyword(lexer.KeywordSelect); err != nil {
 		return nil, err
 	}
+
+	selectItems := make([]SelectItem, 0, 4)
+
+	if p.peek().Kind == lexer.Asterisk {
+		_ = p.next()
+	} else {
+		for {
+			exp, err := p.parseExpression()
+			if err != nil {
+				return nil, fmt.Errorf("parser: parsing SELECT expression: %w", err)
+			}
+
+			var alias *string
+
+			current := p.peek()
+			if current.Kind == lexer.KeywordKind && current.Keyword == lexer.KeywordAs {
+				_ = p.next()
+
+				aliasName, err := p.expectIdentifier()
+				if err != nil {
+					return nil, fmt.Errorf("parser: parsing SELECT alias: %w", err)
+				}
+				alias = &aliasName
+			}
+
+			selectItems = append(selectItems, SelectItem{
+				Expression: exp,
+				Alias:      alias,
+			})
+
+			if p.peek().Kind != lexer.Comma {
+				break
+			}
+
+			if err := p.expect(lexer.Comma); err != nil {
+				return nil, err
+			}
+		}
+	}
+
 	if err := p.expect(lexer.Asterisk); err != nil {
 		return nil, err
 	}
@@ -196,10 +236,11 @@ func (p *Parser) parseSelect() (Statement, error) {
 	}
 
 	return SelectStatement{
-		TableName: tableName,
-		OrderBy:   orderBy,
-		Limit:     limit,
-		Offset:    offset,
+		TableName:   tableName,
+		SelectItems: selectItems,
+		OrderBy:     orderBy,
+		Limit:       limit,
+		Offset:      offset,
 	}, nil
 }
 
@@ -480,8 +521,17 @@ func (p *Parser) parseColumn() (Column, error) {
 func (p *Parser) parseExpression() (Expression, error) {
 	token := p.next()
 	switch token.Kind {
+	case lexer.Identifier:
+		columnName, ok := token.Value.(string)
+		if !ok {
+			return Expression{}, fmt.Errorf("parser: invalid identifier payload at %s", lexer.DescribePosition(token.Offset))
+		}
+
+		return Expression{Kind: ColumnReference, Value: columnName}, nil
+
 	case lexer.String:
 		return Expression{Kind: StringLiteral, Value: token.Value.(string)}, nil
+
 	case lexer.Number:
 		switch value := token.Value.(type) {
 		case int64:
@@ -491,6 +541,7 @@ func (p *Parser) parseExpression() (Expression, error) {
 		default:
 			return Expression{}, fmt.Errorf("parser: invalid number payload at %s", lexer.DescribePosition(token.Offset))
 		}
+
 	case lexer.KeywordKind:
 		switch token.Keyword {
 		case lexer.KeywordTrue:
@@ -502,8 +553,9 @@ func (p *Parser) parseExpression() (Expression, error) {
 		default:
 			return Expression{}, fmt.Errorf("parser: keyword '%s' is not an expression at %s", token.Keyword, lexer.DescribePosition(token.Offset))
 		}
+
 	default:
-		return Expression{}, fmt.Errorf("parser: expected constant expression, got %s at %s", lexer.DescribeToken(token), lexer.DescribePosition(token.Offset))
+		return Expression{}, fmt.Errorf("parser: expected expression, got %s at %s", lexer.DescribeToken(token), lexer.DescribePosition(token.Offset))
 	}
 }
 
