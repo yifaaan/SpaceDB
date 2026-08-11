@@ -99,6 +99,18 @@ type ProjectionNode struct {
 
 func (ProjectionNode) node() {}
 
+// AggregateNode 表示不带 GROUP BY 的全表聚合
+//
+// Source 产生原始行；AggregateNode 把全部输入行压缩成一行。
+//
+//	SELECT count(id), max(score) FROM users;
+type AggregateNode struct {
+	Source Node
+	Items  []parser.SelectItem
+}
+
+func (AggregateNode) node() {}
+
 // NestedLoopJoinNode 表示嵌套循环 Join
 //
 // Left 和 Right 可以是 JoinNode，支持多表连接
@@ -176,6 +188,29 @@ func Build(stmt parser.Statement) (Plan, error) {
 			return Plan{}, fmt.Errorf("planner: building FROM clause: %w", err)
 		}
 
+		hasAggregate := false
+		hasNonAggregate := false
+
+		for _, item := range stmt.SelectItems {
+			if item.Expression.Kind == parser.FunctionExpression {
+				hasAggregate = true
+				continue
+			}
+			hasNonAggregate = true
+		}
+
+		// 没有 GROUP BY, 不能混合普通列和聚合函数
+		if hasAggregate && hasNonAggregate {
+			return Plan{}, fmt.Errorf("planner: aggregate functions cannot be mixed with non-aggregate expressions without GROUP BY")
+		}
+
+		if hasAggregate {
+			node = AggregateNode{
+				Source: node,
+				Items:  stmt.SelectItems,
+			}
+		}
+
 		if len(stmt.OrderBy) != 0 {
 			node = OrderNode{
 				Source:  node,
@@ -229,7 +264,7 @@ func Build(stmt parser.Statement) (Plan, error) {
 			}
 		}
 
-		if len(stmt.SelectItems) != 0 {
+		if len(stmt.SelectItems) != 0 && !hasAggregate {
 			node = ProjectionNode{
 				Source: node,
 				Items:  stmt.SelectItems,

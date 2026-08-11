@@ -268,3 +268,67 @@ func TestBuildConditionalJoinPlans(t *testing.T) {
 		})
 	}
 }
+
+func TestBuildAggregatePlan(t *testing.T) {
+	statement, err := parser.Parse(`
+                SELECT count(a) AS total, max(b)
+                FROM users
+                ORDER BY total
+                LIMIT 1;
+        `)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	plan, err := Build(statement)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	limit, ok := plan.Node.(LimitNode)
+	if !ok {
+		t.Fatalf("root = %T, want LimitNode", plan.Node)
+	}
+
+	order, ok := limit.Source.(OrderNode)
+	if !ok {
+		t.Fatalf("limit source = %T, want OrderNode", limit.Source)
+	}
+
+	aggregate, ok := order.Source.(AggregateNode)
+	if !ok {
+		t.Fatalf("order source = %T, want AggregateNode", order.Source)
+	}
+
+	if len(aggregate.Items) != 2 {
+		t.Fatalf("aggregate items = %d, want 2", len(aggregate.Items))
+	}
+
+	firstCall, ok := aggregate.Items[0].Expression.Value.(parser.FunctionCall)
+	if !ok || firstCall.Name != "count" || firstCall.Argument != "a" {
+		t.Fatalf("first aggregate = %#v", aggregate.Items[0])
+	}
+
+	if aggregate.Items[0].Alias == nil || *aggregate.Items[0].Alias != "total" {
+		t.Fatalf("first alias = %#v, want total", aggregate.Items[0].Alias)
+	}
+
+	scan, ok := aggregate.Source.(ScanNode)
+	if !ok || scan.TableName != "users" {
+		t.Fatalf("aggregate source = %#v, want users scan", aggregate.Source)
+	}
+}
+
+func TestBuildRejectsMixedAggregateExpressions(t *testing.T) {
+	statement, err := parser.Parse(
+		"SELECT a, count(b) FROM users;",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = Build(statement)
+	if err == nil {
+		t.Fatal("Build succeeded for mixed aggregate query")
+	}
+}

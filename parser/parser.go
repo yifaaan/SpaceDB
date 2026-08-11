@@ -522,8 +522,7 @@ func (p *Parser) parseExpression() (Expression, error) {
 		}
 
 		// 标识符后没有左括号，表示普通列引用
-		//
-		//      SELECT score FROM users
+		// SELECT score FROM users
 		if p.peek().Kind != lexer.OpenParen {
 			return Expression{
 				Kind:  ColumnReference,
@@ -532,8 +531,7 @@ func (p *Parser) parseExpression() (Expression, error) {
 		}
 
 		// 标识符跟左括号，表示函数调用
-		//
-		//      SELECT count(score) FROM users
+		// SELECT count(score) FROM users
 		if err := p.expect(lexer.OpenParen); err != nil {
 			return Expression{}, err
 		}
