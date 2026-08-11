@@ -147,6 +147,10 @@ func TestParserErrors(t *testing.T) {
 		"SELECT * FROM t1 LEFT t2 ON a = b;",
 		"SELECT * FROM t1 RIGHT JOIN t2 a = b;",
 		"SELECT * FROM t1 CROSS JOIN t2 ON a = b;",
+
+		"SELECT count() FROM users;",
+		"SELECT count(*) FROM users;",
+		"SELECT sum(a, b) FROM users;",
 	}
 	for _, sql := range tests {
 		t.Run(sql, func(t *testing.T) {
@@ -263,5 +267,54 @@ func TestParseConditionalJoins(t *testing.T) {
 				t.Fatalf("operation = %#v", operation)
 			}
 		})
+	}
+}
+
+func TestParseAggregateFunctions(t *testing.T) {
+	statement, err := Parse(`
+                SELECT
+                        count(a) AS total,
+                        min(b),
+                        max(c),
+                        sum(c),
+                        avg(c)
+                FROM tbl1;
+        `)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	selectStatement, ok := statement.(SelectStatement)
+	if !ok {
+		t.Fatalf("statement = %T, want SelectStatement", statement)
+	}
+
+	want := []FunctionCall{
+		{Name: "count", Argument: "a"},
+		{Name: "min", Argument: "b"},
+		{Name: "max", Argument: "c"},
+		{Name: "sum", Argument: "c"},
+		{Name: "avg", Argument: "c"},
+	}
+
+	if len(selectStatement.SelectItems) != len(want) {
+		t.Fatalf("select items = %d, want %d", len(selectStatement.SelectItems), len(want))
+	}
+
+	for i, expected := range want {
+		expression := selectStatement.SelectItems[i].Expression
+		if expression.Kind != FunctionExpression {
+			t.Fatalf("item %d kind = %d, want FunctionExpression", i, expression.Kind)
+		}
+
+		call, ok := expression.Value.(FunctionCall)
+		if !ok || call != expected {
+			t.Fatalf("item %d = %#v, want %#v", i, expression.Value, expected)
+		}
+	}
+
+	alias := selectStatement.SelectItems[0].Alias
+	if alias == nil || *alias != "total" {
+		t.Fatalf("COUNT alias = %#v, want total", alias)
 	}
 }

@@ -19,6 +19,9 @@ const (
 	// 当前只支持 ON left_column = right_column
 	OperationExpression
 
+	// FunctionExpression 表示函数调用
+	FunctionExpression
+
 	// ColumnReference 表示 SELECT 中引用某个表字段
 	//
 	// 如 SELECT name FROM users 中的 name
@@ -48,17 +51,33 @@ type Operation struct {
 	Right Expression
 }
 
+// FunctionCall SQL 函数调用
+//
+//	COUNT(score)
+//
+// 表示为：
+//
+//	FunctionCall{
+//	    Name:     "count",
+//	    Argument: "score",
+//	}
+type FunctionCall struct {
+	Name     string
+	Argument string
+}
+
 // Expression SQL 表达式
 //
 // Value 的实际类型取决于 Kind：
 //
-//		Null             -> nil
-//		BooleanLiteral   -> bool
-//		IntegerLiteral   -> int64
-//		FloatLiteral     -> float64
-//		StringLiteral    -> string
-//		ColumnReference  -> string，保存列名
-//	   	OperationExpression -> Operation
+//	Null             -> nil
+//	BooleanLiteral   -> bool
+//	IntegerLiteral   -> int64
+//	FloatLiteral     -> float64
+//	StringLiteral    -> string
+//	ColumnReference  -> string，保存列名
+//	OperationExpression -> Operation
+//	FunctionExpression -> FunctionCall
 type Expression struct {
 	Kind  ExpressionKind
 	Value any // nil / bool / int64 / float64 / string / string

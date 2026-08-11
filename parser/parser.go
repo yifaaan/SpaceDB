@@ -516,12 +516,44 @@ func (p *Parser) parseExpression() (Expression, error) {
 	token := p.next()
 	switch token.Kind {
 	case lexer.Identifier:
-		columnName, ok := token.Value.(string)
+		name, ok := token.Value.(string)
 		if !ok {
 			return Expression{}, fmt.Errorf("parser: invalid identifier payload at %s", lexer.DescribePosition(token.Offset))
 		}
 
-		return Expression{Kind: ColumnReference, Value: columnName}, nil
+		// 标识符后没有左括号，表示普通列引用
+		//
+		//      SELECT score FROM users
+		if p.peek().Kind != lexer.OpenParen {
+			return Expression{
+				Kind:  ColumnReference,
+				Value: name,
+			}, nil
+		}
+
+		// 标识符跟左括号，表示函数调用
+		//
+		//      SELECT count(score) FROM users
+		if err := p.expect(lexer.OpenParen); err != nil {
+			return Expression{}, err
+		}
+
+		argument, err := p.expectIdentifier()
+		if err != nil {
+			return Expression{}, fmt.Errorf("parser: parsing argument of function %q: %w", name, err)
+		}
+
+		if err := p.expect(lexer.CloseParen); err != nil {
+			return Expression{}, fmt.Errorf("parser: closing function %q: %w", name, err)
+		}
+
+		return Expression{
+			Kind: FunctionExpression,
+			Value: FunctionCall{
+				Name:     name,
+				Argument: argument,
+			},
+		}, nil
 
 	case lexer.String:
 		return Expression{Kind: StringLiteral, Value: token.Value.(string)}, nil
