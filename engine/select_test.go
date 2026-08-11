@@ -463,7 +463,7 @@ func TestSessionSumAggregate(t *testing.T) {
 		`INSERT INTO totals VALUES
                         (1, 10, 1.25, 'first'),
                         (2, NULL, 2.5, 'second'),
-                        (3, -3, NULL, NULL);`,
+                        (3, 3, NULL, NULL);`,
 	} {
 		if _, err := session.Execute(sql); err != nil {
 			t.Fatalf("Execute(%q): %v", sql, err)
@@ -496,8 +496,8 @@ func TestSessionSumAggregate(t *testing.T) {
 
 	values := rows.Rows[0]
 
-	if values[0].Kind != types.ValueFloat || values[0].Float != 7 {
-		t.Fatalf("sum(integer_amount) = %#v, want float 7", values[0])
+	if values[0].Kind != types.ValueFloat || values[0].Float != 13 {
+		t.Fatalf("sum(integer_amount) = %#v, want float 13", values[0])
 	}
 
 	if values[1].Kind != types.ValueFloat || values[1].Float != 3.75 {
@@ -516,5 +516,105 @@ func TestSessionSumAggregate(t *testing.T) {
 
 	if _, err := session.Execute("SELECT sum(label) FROM totals;"); err == nil {
 		t.Fatal("SUM on string column succeeded, want error")
+	}
+}
+
+func TestSessionAvgAggregate(t *testing.T) {
+	session := NewSession(NewKVEngine(storage.NewMemoryEngine()))
+
+	for _, sql := range []string{
+		`CREATE TABLE scores (
+                        id INT PRIMARY KEY,
+                        integer_score INT NULL,
+                        float_score FLOAT NULL,
+                        label STRING NULL
+                );`,
+		`CREATE TABLE empty_scores (
+                        id INT PRIMARY KEY,
+                        score INT NULL
+                );`,
+		`INSERT INTO scores VALUES
+                        (1, 10, 1.5, 'first'),
+                        (2, 20, NULL, 'second'),
+                        (3, NULL, 4.5, 'third');`,
+	} {
+		if _, err := session.Execute(sql); err != nil {
+			t.Fatalf("Execute(%q): %v", sql, err)
+		}
+	}
+
+	result, err := session.Execute(`
+                SELECT
+                        avg(integer_score) AS integer_average,
+                        avg(float_score)
+                FROM scores;
+        `)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rows, ok := result.(executor.RowsResult)
+	if !ok {
+		t.Fatalf(
+			"result = %T, want executor.RowsResult",
+			result,
+		)
+	}
+
+	wantColumns := []string{"integer_average", "avg"}
+	if !slices.Equal(rows.Columns, wantColumns) {
+		t.Fatalf(
+			"columns = %#v, want %#v",
+			rows.Columns,
+			wantColumns,
+		)
+	}
+
+	if len(rows.Rows) != 1 || len(rows.Rows[0]) != 2 {
+		t.Fatalf(
+			"rows = %#v, want one row with two values",
+			rows.Rows,
+		)
+	}
+
+	values := rows.Rows[0]
+
+	if values[0].Kind != types.ValueFloat ||
+		values[0].Float != 15 {
+		t.Fatalf(
+			"avg(integer_score) = %#v, want float 15",
+			values[0],
+		)
+	}
+
+	if values[1].Kind != types.ValueFloat ||
+		values[1].Float != 3 {
+		t.Fatalf(
+			"avg(float_score) = %#v, want float 3",
+			values[1],
+		)
+	}
+	result, err = session.Execute(
+		"SELECT avg(score) FROM empty_scores;",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	emptyRows := result.(executor.RowsResult)
+	if len(emptyRows.Rows) != 1 ||
+		len(emptyRows.Rows[0]) != 1 ||
+		emptyRows.Rows[0][0].Kind != types.ValueNull {
+		t.Fatalf(
+			"empty AVG rows = %#v, want [[NULL]]",
+			emptyRows.Rows,
+		)
+	}
+
+	// AVG 与 SUM 一样，只允许数值列。
+	if _, err := session.Execute(
+		"SELECT avg(label) FROM scores;",
+	); err == nil {
+		t.Fatal("AVG on string column succeeded, want error")
 	}
 }

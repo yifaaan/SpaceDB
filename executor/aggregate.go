@@ -108,6 +108,9 @@ func buildAggregateCalculator(name string) (aggregateCalculator, error) {
 	case "SUM":
 		return sumCalculator{}, nil
 
+	case "AVG":
+		return avgCalculator{}, nil
+
 	default:
 		return nil, fmt.Errorf("aggregate function %q is not implemented", name)
 	}
@@ -249,5 +252,40 @@ func (sumCalculator) calculate(columnName string, columns []string, rows []types
 	return types.Value{
 		Kind:  types.ValueFloat,
 		Float: sum,
+	}, nil
+}
+
+// avgCalculator 实现 AVG(column)。
+type avgCalculator struct{}
+
+func (avgCalculator) calculate(columnName string, columns []string, rows []types.Row) (types.Value, error) {
+	sumValue, err := (sumCalculator{}).calculate(columnName, columns, rows)
+	if err != nil {
+		return types.Value{}, fmt.Errorf("calculating AVG sum: %w", err)
+	}
+
+	countValue, err := (countCalculator{}).calculate(columnName, columns, rows)
+	if err != nil {
+		return types.Value{}, fmt.Errorf("calculating AVG count: %w", err)
+	}
+
+	if sumValue.Kind == types.ValueNull {
+		return types.Value{Kind: types.ValueNull}, nil
+	}
+	if sumValue.Kind != types.ValueFloat {
+		return types.Value{}, fmt.Errorf("AVG sum returned value kind %d, want float", sumValue.Kind)
+	}
+
+	if countValue.Kind != types.ValueInteger {
+		return types.Value{}, fmt.Errorf("AVG count returned value kind %d, want integer", countValue.Kind)
+	}
+
+	if countValue.Integer == 0 {
+		return types.Value{Kind: types.ValueNull}, nil
+	}
+
+	return types.Value{
+		Kind:  types.ValueFloat,
+		Float: sumValue.Float / float64(countValue.Integer),
 	}, nil
 }
