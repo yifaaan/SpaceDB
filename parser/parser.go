@@ -156,6 +156,29 @@ func (p *Parser) parseSelect() (Statement, error) {
 		return nil, fmt.Errorf("parser: parsing FROM clause: %w", err)
 	}
 
+	// GROUP BY 必须出现在 FROM/JOIN 之后、ORDER BY 之前
+	//
+	// SELECT b, min(c)
+	// FROM t1
+	// GROUP BY b
+	// ORDER BY min;
+	var groupBy *Expression
+	if current := p.peek(); current.Kind == lexer.KeywordKind && current.Keyword == lexer.KeywordGroup {
+		_ = p.next()
+
+		// BY
+		if err := p.expectKeyword(lexer.KeywordBy); err != nil {
+			return nil, fmt.Errorf("parser: parsing GROUP BY clause: %w", err)
+		}
+
+		expression, err := p.parseExpression()
+		if err != nil {
+			return nil, fmt.Errorf("parser: parsing GROUP BY expression: %w", err)
+		}
+
+		groupBy = &expression
+	}
+
 	// ORDER BY
 	orderBy := make([]OrderBy, 0, 4)
 	current := p.peek()
@@ -232,6 +255,7 @@ func (p *Parser) parseSelect() (Statement, error) {
 	return SelectStatement{
 		From:        from,
 		SelectItems: selectItems,
+		GroupBy:     groupBy,
 		OrderBy:     orderBy,
 		Limit:       limit,
 		Offset:      offset,

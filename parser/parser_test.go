@@ -318,3 +318,60 @@ func TestParseAggregateFunctions(t *testing.T) {
 		t.Fatalf("COUNT alias = %#v, want total", alias)
 	}
 }
+
+func TestParseGroupBy(t *testing.T) {
+	statement, err := Parse(`
+                SELECT b, min(c) AS lowest
+                FROM t1
+                GROUP BY b
+                ORDER BY lowest;
+        `)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	selectStatement, ok := statement.(SelectStatement)
+	if !ok {
+		t.Fatalf("statement = %T, want SelectStatement", statement)
+	}
+
+	if selectStatement.GroupBy == nil {
+		t.Fatal("GroupBy = nil, want column b")
+	}
+
+	groupBy := *selectStatement.GroupBy
+	if groupBy.Kind != ColumnReference {
+		t.Fatalf("GroupBy kind = %d, want ColumnReference", groupBy.Kind)
+	}
+
+	columnName, ok := groupBy.Value.(string)
+	if !ok || columnName != "b" {
+		t.Fatalf("GroupBy value = %#v, want b", groupBy.Value)
+	}
+
+	if len(selectStatement.SelectItems) != 2 {
+		t.Fatalf("select items = %d, want 2", len(selectStatement.SelectItems))
+	}
+
+	call, ok := selectStatement.SelectItems[1].Expression.Value.(FunctionCall)
+	if !ok || call.Name != "min" || call.Argument != "c" {
+		t.Fatalf("aggregate expression = %#v", selectStatement.SelectItems[1].Expression)
+	}
+
+	if len(selectStatement.OrderBy) != 1 || selectStatement.OrderBy[0].Column != "lowest" {
+		t.Fatalf("OrderBy = %#v, want lowest", selectStatement.OrderBy)
+	}
+}
+
+func TestParseGroupByRequiresBy(t *testing.T) {
+	_, err := Parse(
+		"SELECT b FROM t1 GROUP b;",
+	)
+	if err == nil {
+		t.Fatal("Parse succeeded without BY")
+	}
+
+	if !strings.Contains(err.Error(), "expected keyword 'BY'") {
+		t.Fatalf("error = %v, want missing-BY error", err)
+	}
+}

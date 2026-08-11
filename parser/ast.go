@@ -221,6 +221,9 @@ type SelectStatement struct {
 	// 空切片表示 SELECT *
 	SelectItems []SelectItem
 
+	// GroupBy 保存 GROUP BY 后面的表达式
+	GroupBy *Expression
+
 	OrderBy []OrderBy
 
 	Limit *Expression

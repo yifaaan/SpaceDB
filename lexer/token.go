@@ -35,6 +35,10 @@ const (
 	KeywordSet     Keyword = "SET"
 	KeywordWhere   Keyword = "WHERE"
 	KeywordDelete  Keyword = "DELETE"
+
+	// GROUP BY
+	KeywordGroup Keyword = "GROUP"
+
 	// ORDER BY
 	KeywordOrder Keyword = "ORDER"
 	KeywordBy    Keyword = "BY"
@@ -96,7 +100,8 @@ func KeywordFromIdentifier(identifier string) (Keyword, bool) {
 		KeywordOrder, KeywordBy, KeywordAsc, KeywordDesc,
 		KeywordLimit, KeywordOffset, KeywordAs,
 		KeywordCross, KeywordJoin,
-		KeywordLeft, KeywordRight, KeywordOn:
+		KeywordLeft, KeywordRight, KeywordOn,
+		KeywordGroup:
 		return keyword, true
 	default:
 		return "", false
