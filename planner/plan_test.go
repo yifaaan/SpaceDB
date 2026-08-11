@@ -299,6 +299,12 @@ func TestBuildAggregatePlan(t *testing.T) {
 	if !ok {
 		t.Fatalf("order source = %T, want AggregateNode", order.Source)
 	}
+	if aggregate.GroupBy != nil {
+		t.Fatalf(
+			"aggregate GroupBy = %#v, want nil",
+			aggregate.GroupBy,
+		)
+	}
 
 	if len(aggregate.Items) != 2 {
 		t.Fatalf("aggregate items = %d, want 2", len(aggregate.Items))
@@ -330,5 +336,129 @@ func TestBuildRejectsMixedAggregateExpressions(t *testing.T) {
 	_, err = Build(statement)
 	if err == nil {
 		t.Fatal("Build succeeded for mixed aggregate query")
+	}
+}
+
+func TestBuildGroupByPlan(t *testing.T) {
+	statement, err := parser.Parse(`
+                SELECT b, min(c) AS lowest
+                FROM users
+                GROUP BY b
+                ORDER BY lowest;
+        `)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	plan, err := Build(statement)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	order, ok := plan.Node.(OrderNode)
+	if !ok {
+		t.Fatalf(
+			"root = %T, want OrderNode",
+			plan.Node,
+		)
+	}
+
+	aggregate, ok := order.Source.(AggregateNode)
+	if !ok {
+		t.Fatalf(
+			"order source = %T, want AggregateNode",
+			order.Source,
+		)
+	}
+
+	if aggregate.GroupBy == nil {
+		t.Fatal("aggregate GroupBy = nil, want column b")
+	}
+
+	if aggregate.GroupBy.Kind != parser.ColumnReference ||
+		aggregate.GroupBy.Value != "b" {
+		t.Fatalf(
+			"aggregate GroupBy = %#v, want column b",
+			aggregate.GroupBy,
+		)
+	}
+
+	if len(aggregate.Items) != 2 {
+		t.Fatalf(
+			"aggregate items = %d, want 2",
+			len(aggregate.Items),
+		)
+	}
+
+	scan, ok := aggregate.Source.(ScanNode)
+	if !ok || scan.TableName != "users" {
+		t.Fatalf(
+			"aggregate source = %#v, want users scan",
+			aggregate.Source,
+		)
+	}
+}
+
+func TestBuildGroupByWithoutAggregate(t *testing.T) {
+	statement, err := parser.Parse(`
+                SELECT department
+                FROM employees
+                GROUP BY department;
+        `)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	plan, err := Build(statement)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	aggregate, ok := plan.Node.(AggregateNode)
+	if !ok {
+		t.Fatalf(
+			"root = %T, want AggregateNode",
+			plan.Node,
+		)
+	}
+
+	if aggregate.GroupBy == nil ||
+		aggregate.GroupBy.Value != "department" {
+		t.Fatalf(
+			"GroupBy = %#v, want department",
+			aggregate.GroupBy,
+		)
+	}
+}
+
+func TestBuildRejectsColumnOutsideGroupBy(t *testing.T) {
+	statement, err := parser.Parse(`
+                SELECT name, count(id)
+                FROM employees
+                GROUP BY department;
+        `)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = Build(statement)
+	if err == nil {
+		t.Fatal("Build succeeded with an ungrouped SELECT column")
+	}
+}
+
+func TestBuildRejectsNonColumnGroupBy(t *testing.T) {
+	statement, err := parser.Parse(`
+                SELECT count(id)
+                FROM employees
+                GROUP BY 1;
+        `)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = Build(statement)
+	if err == nil {
+		t.Fatal("Build succeeded with a non-column GROUP BY expression")
 	}
 }

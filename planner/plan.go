@@ -105,8 +105,9 @@ func (ProjectionNode) node() {}
 //
 //	SELECT count(id), max(score) FROM users;
 type AggregateNode struct {
-	Source Node
-	Items  []parser.SelectItem
+	Source  Node
+	Items   []parser.SelectItem
+	GroupBy *parser.Expression
 }
 
 func (AggregateNode) node() {}
@@ -188,26 +189,77 @@ func Build(stmt parser.Statement) (Plan, error) {
 			return Plan{}, fmt.Errorf("planner: building FROM clause: %w", err)
 		}
 
+		groupByColumn := ""
+
+		if stmt.GroupBy != nil {
+			if stmt.GroupBy.Kind != parser.ColumnReference {
+				return Plan{}, fmt.Errorf("planner: GROUP BY expression must be a column reference")
+			}
+
+			columnName, ok := stmt.GroupBy.Value.(string)
+			if !ok {
+				return Plan{}, fmt.Errorf("planner: GROUP BY column reference contains %T", stmt.GroupBy.Value)
+			}
+
+			groupByColumn = columnName
+		}
+
 		hasAggregate := false
 		hasNonAggregate := false
 
-		for _, item := range stmt.SelectItems {
-			if item.Expression.Kind == parser.FunctionExpression {
+		for itemIndex, item := range stmt.SelectItems {
+			switch item.Expression.Kind {
+			case parser.FunctionExpression:
+				// COUNT、MIN、MAX、SUM、AVG
 				hasAggregate = true
-				continue
+
+			case parser.ColumnReference:
+				hasNonAggregate = true
+
+				// 有 GROUP BY 时，SELECT 中出现的普通列必须就是
+				// 分组列 例如：
+				//
+				//      SELECT department, count(id)
+				//      FROM users
+				//      GROUP BY department;
+				if stmt.GroupBy != nil {
+					columnName, ok := item.Expression.Value.(string)
+					if !ok {
+						return Plan{}, fmt.Errorf("planner: SELECT item %d column reference contains %T", itemIndex+1, item.Expression.Value)
+					}
+
+					if columnName != groupByColumn {
+						return Plan{}, fmt.Errorf("planner: column %q must appear in GROUP BY or be used in an aggregate function", columnName)
+					}
+				}
+
+			default:
+				hasNonAggregate = true
+
+				// 当前 Group By Executor 只会输出分组键和聚合函数。
+				// 常量及其他表达式留给后续表达式执行阶段实现。
+				if stmt.GroupBy != nil {
+					return Plan{}, fmt.Errorf("planner: SELECT item %d must be the GROUP BY column or an aggregate function", itemIndex+1)
+				}
 			}
-			hasNonAggregate = true
 		}
 
-		// 没有 GROUP BY, 不能混合普通列和聚合函数
-		if hasAggregate && hasNonAggregate {
+		if stmt.GroupBy == nil &&
+			hasAggregate &&
+			hasNonAggregate {
 			return Plan{}, fmt.Errorf("planner: aggregate functions cannot be mixed with non-aggregate expressions without GROUP BY")
 		}
 
-		if hasAggregate {
+		//      SELECT department
+		//      FROM users
+		//      GROUP BY department;
+		isAggregateQuery := hasAggregate || stmt.GroupBy != nil
+
+		if isAggregateQuery {
 			node = AggregateNode{
-				Source: node,
-				Items:  stmt.SelectItems,
+				Source:  node,
+				Items:   stmt.SelectItems,
+				GroupBy: stmt.GroupBy,
 			}
 		}
 
@@ -264,7 +316,8 @@ func Build(stmt parser.Statement) (Plan, error) {
 			}
 		}
 
-		if len(stmt.SelectItems) != 0 && !hasAggregate {
+		// AggregateNode 已经负责生成最终结果列
+		if len(stmt.SelectItems) != 0 && !isAggregateQuery {
 			node = ProjectionNode{
 				Source: node,
 				Items:  stmt.SelectItems,
