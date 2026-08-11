@@ -601,7 +601,12 @@ func Build(node planner.Node) (Executor, error) {
 			return nil, fmt.Errorf("executor: building right join input: %w", err)
 		}
 
-		return NestedLoopJoinExecutor{left, right}, nil
+		return NestedLoopJoinExecutor{
+			Left:      left,
+			Right:     right,
+			Predicate: node.Predicate,
+			Outer:     node.Outer,
+		}, nil
 
 	default:
 		return nil, fmt.Errorf("executor: unsupported plan node %T", node)

@@ -177,3 +177,83 @@ func TestSessionCrossJoin(t *testing.T) {
 		}
 	}
 }
+
+func TestSessionConditionalJoins(t *testing.T) {
+	session := NewSession(NewKVEngine(storage.NewMemoryEngine()))
+
+	for _, sql := range []string{
+		"CREATE TABLE t1 (a INT PRIMARY KEY);",
+		"CREATE TABLE t2 (b INT PRIMARY KEY);",
+		"CREATE TABLE empty (c INT PRIMARY KEY);",
+		"INSERT INTO t1 VALUES (1), (2), (3);",
+		"INSERT INTO t2 VALUES (2), (3), (4);",
+	} {
+		if _, err := session.Execute(sql); err != nil {
+			t.Fatalf("Execute(%q): %v", sql, err)
+		}
+	}
+
+	tests := []struct {
+		name      string
+		sql       string
+		columns   []string
+		rowCount  int
+		nullCount int
+	}{
+		{
+			"inner",
+			"SELECT * FROM t1 JOIN t2 ON a = b;",
+			[]string{"a", "b"},
+			2,
+			0,
+		},
+		{
+			"left",
+			"SELECT * FROM t1 LEFT JOIN t2 ON a = b;",
+			[]string{"a", "b"},
+			3,
+			1,
+		},
+		{
+			"right",
+			"SELECT * FROM t1 RIGHT JOIN t2 ON a = b;",
+			[]string{"b", "a"},
+			3,
+			1,
+		},
+		{
+			"empty right",
+			"SELECT * FROM t1 LEFT JOIN empty ON a = c;",
+			[]string{"a", "c"},
+			3,
+			3,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := session.Execute(tt.sql)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			rows := result.(executor.RowsResult)
+			if !slices.Equal(rows.Columns, tt.columns) {
+				t.Fatalf("columns = %#v, want %#v", rows.Columns, tt.columns)
+			}
+			if len(rows.Rows) != tt.rowCount {
+				t.Fatalf("row count = %d, want %d", len(rows.Rows), tt.rowCount)
+			}
+
+			nulls := 0
+			for _, row := range rows.Rows {
+				if row[len(row)-1].Kind == types.ValueNull {
+					nulls++
+				}
+			}
+			if nulls != tt.nullCount {
+				t.Fatalf("NULL rows = %d, want %d", nulls, tt.nullCount)
+			}
+		})
+	}
+}
