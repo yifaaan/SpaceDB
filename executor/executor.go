@@ -584,8 +584,9 @@ func Build(node planner.Node) (Executor, error) {
 		}
 
 		return AggregateExecutor{
-			Source: source,
-			Items:  node.Items,
+			Source:  source,
+			Items:   node.Items,
+			GroupBy: node.GroupBy,
 		}, nil
 
 	case planner.ProjectionNode:

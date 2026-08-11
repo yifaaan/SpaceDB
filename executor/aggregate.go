@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-// AggregateExecutor 执行不带 GROUP BY 的全表聚合
+// AggregateExecutor 执行全表聚合或单列 GROUP BY 聚合。
 //
 // Source 产生普通的多行结果，例如：
 //
@@ -28,11 +28,16 @@ import (
 //	Columns: ["count"]
 //	Rows: [[2]]
 type AggregateExecutor struct {
-	Source Executor
-	Items  []parser.SelectItem
+	Source  Executor
+	Items   []parser.SelectItem
+	GroupBy *parser.Expression
 }
 
 func (a AggregateExecutor) Execute(txn Transaction) (ResultSet, error) {
+	if a.Source == nil {
+		return nil, fmt.Errorf("executor: aggregate source is nil")
+	}
+
 	sourceResult, err := a.Source.Execute(txn)
 	if err != nil {
 		return nil, fmt.Errorf("executor: executing aggregate source: %w", err)
@@ -43,48 +48,229 @@ func (a AggregateExecutor) Execute(txn Transaction) (ResultSet, error) {
 		return nil, fmt.Errorf("executor: aggregate source returned %T, want RowsResult", sourceResult)
 	}
 
-	// 一个聚合表达式产生一个输出列和一个输出值
-	outputColumns := make([]string, 0, len(a.Items))
-	outputRow := make(types.Row, 0, len(a.Items))
+	outputColumns, err := aggregateOutputColumns(a.Items)
+	if err != nil {
+		return nil, err
+	}
 
-	for i, item := range a.Items {
-		if item.Expression.Kind != parser.FunctionExpression {
-			return nil, fmt.Errorf("executor: aggregate item %d is not a function expression", i+1)
-		}
-
-		call, ok := item.Expression.Value.(parser.FunctionCall)
-		if !ok {
-			return nil, fmt.Errorf("executor: aggregate item %d contains %T, want parser.FunctionCall", i+1, item.Expression.Value)
-		}
-
-		calculator, err := buildAggregateCalculator(call.Name)
+	if a.GroupBy == nil {
+		// 没有 GROUP BY 时，全部输入行属于同一个隐式分组。即使输入为空，
+		// 也必须计算一次，使 COUNT 返回 0，MIN/MAX/SUM/AVG 返回 NULL。
+		outputRow, err := a.calculateRow(nil, "", rowsResult.Columns, rowsResult.Rows)
 		if err != nil {
-			return nil, fmt.Errorf("executor: building aggregate function %q: %w", call.Name, err)
+			return nil, err
 		}
 
-		value, err := calculator.calculate(call.Argument, rowsResult.Columns, rowsResult.Rows)
+		return RowsResult{
+			Columns: outputColumns,
+			Rows:    []types.Row{outputRow},
+		}, nil
+	}
+
+	groupColumn, groupColumnIndex, err := resolveGroupBy(*a.GroupBy, rowsResult.Columns)
+	if err != nil {
+		return nil, err
+	}
+
+	// map 只负责把分组键映射到 groups 下标；groups 切片保存分组首次出现
+	// 的顺序。直接遍历 map 会让无 ORDER BY 的结果顺序随机变化。
+	type rowGroup struct {
+		key  types.Value
+		rows []types.Row
+	}
+
+	groups := make([]rowGroup, 0)
+	groupIndexes := make(map[types.Value]int)
+
+	for rowIndex, row := range rowsResult.Rows {
+		if groupColumnIndex >= len(row) {
+			return nil, fmt.Errorf(
+				"executor: row %d does not contain GROUP BY column %q at index %d",
+				rowIndex+1,
+				groupColumn,
+				groupColumnIndex,
+			)
+		}
+
+		key := row[groupColumnIndex]
+		if groupIndex, ok := groupIndexes[key]; ok {
+			groups[groupIndex].rows = append(groups[groupIndex].rows, row)
+			continue
+		}
+
+		groupIndexes[key] = len(groups)
+		groups = append(groups, rowGroup{
+			key:  key,
+			rows: []types.Row{row},
+		})
+	}
+
+	outputRows := make([]types.Row, 0, len(groups))
+	for groupIndex := range groups {
+		group := &groups[groupIndex]
+		outputRow, err := a.calculateRow(
+			&group.key,
+			groupColumn,
+			rowsResult.Columns,
+			group.rows,
+		)
 		if err != nil {
-			return nil, fmt.Errorf("executor: calculating %s(%s): %w", call.Name, call.Argument, err)
+			return nil, fmt.Errorf(
+				"executor: calculating GROUP BY value %#v: %w",
+				group.key,
+				err,
+			)
+		}
+		outputRows = append(outputRows, outputRow)
+	}
+
+	return RowsResult{
+		Columns: outputColumns,
+		Rows:    outputRows,
+	}, nil
+}
+
+// aggregateOutputColumns 按 SELECT 项提前确定结果列名。列名只与表达式和
+// 别名有关，不需要在每个分组中重复计算。
+func aggregateOutputColumns(items []parser.SelectItem) ([]string, error) {
+	columns := make([]string, 0, len(items))
+
+	for itemIndex, item := range items {
+		var outputName string
+
+		switch item.Expression.Kind {
+		case parser.FunctionExpression:
+			call, ok := item.Expression.Value.(parser.FunctionCall)
+			if !ok {
+				return nil, fmt.Errorf(
+					"executor: aggregate item %d contains %T, want parser.FunctionCall",
+					itemIndex+1,
+					item.Expression.Value,
+				)
+			}
+			outputName = call.Name
+
+		case parser.ColumnReference:
+			columnName, ok := item.Expression.Value.(string)
+			if !ok {
+				return nil, fmt.Errorf(
+					"executor: aggregate item %d column reference contains %T",
+					itemIndex+1,
+					item.Expression.Value,
+				)
+			}
+			outputName = columnName
+
+		default:
+			return nil, fmt.Errorf(
+				"executor: aggregate item %d has unsupported expression kind %d",
+				itemIndex+1,
+				item.Expression.Kind,
+			)
 		}
 
-		outputName := call.Name
 		if item.Alias != nil {
 			outputName = *item.Alias
 		}
-
-		outputColumns = append(outputColumns, outputName)
-		outputRow = append(outputRow, value)
+		columns = append(columns, outputName)
 	}
 
-	// 即使输入表没有任何行，聚合仍然必须返回一行
-	//
-	// 如空表上的 COUNT(id) 返回：
-	//
-	//      Rows: [[0]]
-	return RowsResult{
-		Columns: outputColumns,
-		Rows:    []types.Row{outputRow},
-	}, nil
+	return columns, nil
+}
+
+// resolveGroupBy 验证分组表达式并把分组列名解析成输入行下标。
+func resolveGroupBy(expression parser.Expression, columns []string) (string, int, error) {
+	if expression.Kind != parser.ColumnReference {
+		return "", 0, fmt.Errorf("executor: GROUP BY expression must be a column reference")
+	}
+
+	columnName, ok := expression.Value.(string)
+	if !ok {
+		return "", 0, fmt.Errorf(
+			"executor: GROUP BY column reference contains %T",
+			expression.Value,
+		)
+	}
+
+	columnIndex := slices.Index(columns, columnName)
+	if columnIndex < 0 {
+		return "", 0, fmt.Errorf(
+			"executor: GROUP BY column %q does not exist",
+			columnName,
+		)
+	}
+
+	return columnName, columnIndex, nil
+}
+
+// calculateRow 计算一个分组对应的结果行。函数表达式在组内聚合；普通列
+// 只能引用 GROUP BY 列，因此每组只需输出一次 groupValue。
+func (a AggregateExecutor) calculateRow(
+	groupValue *types.Value,
+	groupColumn string,
+	columns []string,
+	rows []types.Row,
+) (types.Row, error) {
+	outputRow := make(types.Row, 0, len(a.Items))
+
+	for itemIndex, item := range a.Items {
+		switch item.Expression.Kind {
+		case parser.FunctionExpression:
+			call, ok := item.Expression.Value.(parser.FunctionCall)
+			if !ok {
+				return nil, fmt.Errorf(
+					"aggregate item %d contains %T, want parser.FunctionCall",
+					itemIndex+1,
+					item.Expression.Value,
+				)
+			}
+
+			calculator, err := buildAggregateCalculator(call.Name)
+			if err != nil {
+				return nil, fmt.Errorf("building aggregate function %q: %w", call.Name, err)
+			}
+
+			value, err := calculator.calculate(call.Argument, columns, rows)
+			if err != nil {
+				return nil, fmt.Errorf("calculating %s(%s): %w", call.Name, call.Argument, err)
+			}
+			outputRow = append(outputRow, value)
+
+		case parser.ColumnReference:
+			if groupValue == nil {
+				return nil, fmt.Errorf(
+					"aggregate item %d is a column reference without GROUP BY",
+					itemIndex+1,
+				)
+			}
+
+			columnName, ok := item.Expression.Value.(string)
+			if !ok {
+				return nil, fmt.Errorf(
+					"aggregate item %d column reference contains %T",
+					itemIndex+1,
+					item.Expression.Value,
+				)
+			}
+			if columnName != groupColumn {
+				return nil, fmt.Errorf(
+					"column %q must appear in GROUP BY or be used in an aggregate function",
+					columnName,
+				)
+			}
+
+			outputRow = append(outputRow, *groupValue)
+
+		default:
+			return nil, fmt.Errorf(
+				"aggregate item %d has unsupported expression kind %d",
+				itemIndex+1,
+				item.Expression.Kind,
+			)
+		}
+	}
+
+	return outputRow, nil
 }
 
 // aggregateCalculator 描述一个聚合函数需要完成的计算

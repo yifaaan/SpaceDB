@@ -618,3 +618,133 @@ func TestSessionAvgAggregate(t *testing.T) {
 		t.Fatal("AVG on string column succeeded, want error")
 	}
 }
+
+func TestSessionGroupBy(t *testing.T) {
+	session := NewSession(NewKVEngine(storage.NewMemoryEngine()))
+
+	for _, sql := range []string{
+		`CREATE TABLE measurements_by_label (
+			id INT PRIMARY KEY,
+			label STRING NULL,
+			measurement FLOAT NULL
+		);`,
+		`CREATE TABLE empty_groups (
+			id INT PRIMARY KEY,
+			label STRING NULL
+		);`,
+		`INSERT INTO measurements_by_label VALUES
+			(1, 'aa', 3.1),
+			(2, 'bb', 5.3),
+			(3, NULL, NULL),
+			(4, NULL, 4.6),
+			(5, 'bb', 5.8),
+			(6, 'dd', 1.4);`,
+	} {
+		if _, err := session.Execute(sql); err != nil {
+			t.Fatalf("Execute(%q): %v", sql, err)
+		}
+	}
+
+	result, err := session.Execute(`
+		SELECT
+			label,
+			min(measurement),
+			max(id),
+			avg(measurement)
+		FROM measurements_by_label
+		GROUP BY label
+		ORDER BY avg;
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rows, ok := result.(executor.RowsResult)
+	if !ok {
+		t.Fatalf("result = %T, want executor.RowsResult", result)
+	}
+
+	wantColumns := []string{"label", "min", "max", "avg"}
+	if !slices.Equal(rows.Columns, wantColumns) {
+		t.Fatalf("columns = %#v, want %#v", rows.Columns, wantColumns)
+	}
+
+	if len(rows.Rows) != 4 {
+		t.Fatalf("row count = %d, want 4", len(rows.Rows))
+	}
+
+	// ORDER BY avg 使用现有 Value.Compare 语义：NULL 小于非 NULL。
+	// 本数据中 NULL 分组仍有 measurement=4.6，因此按平均值排列为：
+	// dd(1.4)、aa(3.1)、NULL(4.6)、bb(5.55)。
+	want := []struct {
+		labelKind types.ValueKind
+		label     string
+		min       float64
+		max       int64
+		avg       float64
+	}{
+		{types.ValueString, "dd", 1.4, 6, 1.4},
+		{types.ValueString, "aa", 3.1, 1, 3.1},
+		{types.ValueNull, "", 4.6, 4, 4.6},
+		{types.ValueString, "bb", 5.3, 5, 5.55},
+	}
+
+	for rowIndex, expected := range want {
+		row := rows.Rows[rowIndex]
+		if len(row) != 4 {
+			t.Fatalf("row %d = %#v, want 4 values", rowIndex+1, row)
+		}
+
+		if row[0].Kind != expected.labelKind ||
+			row[0].String != expected.label ||
+			row[1].Kind != types.ValueFloat ||
+			row[1].Float != expected.min ||
+			row[2].Kind != types.ValueInteger ||
+			row[2].Integer != expected.max ||
+			row[3].Kind != types.ValueFloat ||
+			row[3].Float != expected.avg {
+			t.Fatalf("row %d = %#v, want %#v", rowIndex+1, row, expected)
+		}
+	}
+
+	// 没有聚合函数的 GROUP BY 仍会为每个不同键产生一行。
+	result, err = session.Execute(`
+		SELECT label
+		FROM measurements_by_label
+		GROUP BY label
+		ORDER BY label;
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	distinctRows := result.(executor.RowsResult)
+	if len(distinctRows.Rows) != 4 {
+		t.Fatalf(
+			"distinct group row count = %d, want 4",
+			len(distinctRows.Rows),
+		)
+	}
+	if distinctRows.Rows[0][0].Kind != types.ValueNull ||
+		distinctRows.Rows[1][0].String != "aa" ||
+		distinctRows.Rows[2][0].String != "bb" ||
+		distinctRows.Rows[3][0].String != "dd" {
+		t.Fatalf("distinct group rows = %#v", distinctRows.Rows)
+	}
+
+	// GROUP BY 空表没有任何分组，因此返回零行；这与无 GROUP BY 的
+	// 聚合仍返回一行是两个不同的 SQL 语义。
+	result, err = session.Execute(`
+		SELECT label, count(id)
+		FROM empty_groups
+		GROUP BY label;
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	emptyRows := result.(executor.RowsResult)
+	if len(emptyRows.Rows) != 0 {
+		t.Fatalf("empty grouped rows = %#v, want zero rows", emptyRows.Rows)
+	}
+}
