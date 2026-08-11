@@ -97,7 +97,7 @@ type OrderBy struct {
 	Direction OrderDirection
 }
 
-// SelectItem 表示 SELECT 后的一项投影。
+// SelectItem 表示 SELECT 后的一项投影
 //
 // 如：
 //
@@ -109,6 +109,56 @@ type SelectItem struct {
 
 	Alias *string
 }
+
+// FromItem 表示 SELECT 的数据来源：TABLE / JOINED TABLE
+type FromItem interface {
+	fromItem()
+}
+
+// TableFromItem
+//
+//	Select * FROM users
+//
+// 对应 TableFromItem{Name: "users"}
+type TableFromItem struct {
+	Name string
+}
+
+func (TableFromItem) fromItem() {}
+
+// JoinType 表示连接类型
+type JoinType uint8
+
+const (
+	JoinCross JoinType = iota
+	JoinInner
+	JoinLeft
+	JoinRight
+)
+
+// JoinFromItem 连接
+//
+// 可递归嵌套
+//
+//	FROM t1 CROSS JOIN t2 CROSS JOIN t3
+//
+// 表示为左结合树：
+//
+//	Join
+//	├── Join
+//	│   ├── Table(t1)
+//	│   └── Table(t2)
+//	└── Table(t3)
+type JoinFromItem struct {
+	Left     FromItem
+	Right    FromItem
+	JoinType JoinType
+}
+
+func (JoinFromItem) fromItem() {}
+
+var _ FromItem = TableFromItem{}
+var _ FromItem = JoinFromItem{}
 
 // SelectStatement SELECT 语句的 AST
 type SelectStatement struct {

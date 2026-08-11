@@ -48,6 +48,9 @@ const (
 
 	// AS 为 SELECT 投影列指定别名
 	KeywordAs Keyword = "AS"
+
+	KeywordCross Keyword = "CROSS"
+	KeywordJoin  Keyword = "JOIN"
 )
 
 type Kind uint8
@@ -87,7 +90,8 @@ func KeywordFromIdentifier(identifier string) (Keyword, bool) {
 		KeywordNull, KeywordPrimary, KeywordKey,
 		KeywordUpdate, KeywordSet, KeywordWhere, KeywordDelete,
 		KeywordOrder, KeywordBy, KeywordAsc, KeywordDesc,
-		KeywordLimit, KeywordOffset, KeywordAs:
+		KeywordLimit, KeywordOffset, KeywordAs,
+		KeywordCross, KeywordJoin:
 		return keyword, true
 	default:
 		return "", false
