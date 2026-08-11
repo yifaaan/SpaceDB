@@ -142,6 +142,11 @@ func TestParserErrors(t *testing.T) {
 		"INSERT INTO users VALUES ();",
 		"UPDATE users SET name = 'a', name = 'b';",
 		"UPDATE users SET name = 'a' WHERE id;",
+
+		"SELECT * FROM t1 JOIN t2;",
+		"SELECT * FROM t1 LEFT t2 ON a = b;",
+		"SELECT * FROM t1 RIGHT JOIN t2 a = b;",
+		"SELECT * FROM t1 CROSS JOIN t2 ON a = b;",
 	}
 	for _, sql := range tests {
 		t.Run(sql, func(t *testing.T) {
@@ -211,5 +216,52 @@ func TestParseSelectProjection(t *testing.T) {
 		fixed.Alias == nil ||
 		*fixed.Alias != "fixed" {
 		t.Fatalf("third select item = %#v", fixed)
+	}
+}
+
+func TestParseConditionalJoins(t *testing.T) {
+	tests := []struct {
+		name     string
+		sql      string
+		joinType JoinType
+		leftCol  string
+		rightCol string
+	}{
+		{"inner", "SELECT * FROM t1 JOIN t2 ON a = b;", JoinInner, "a", "b"},
+		{"left", "SELECT * FROM t1 LEFT JOIN t2 ON a = b;", JoinLeft, "a", "b"},
+		// RIGHT JOIN 会交换表达式两侧。
+		{"right", "SELECT * FROM t1 RIGHT JOIN t2 ON a = b;", JoinRight, "b", "a"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			statement, err := Parse(tt.sql)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			selectStatement, ok := statement.(SelectStatement)
+			if !ok {
+				t.Fatalf("statement = %T", statement)
+			}
+
+			join, ok := selectStatement.From.(JoinFromItem)
+			if !ok {
+				t.Fatalf("from = %T", selectStatement.From)
+			}
+			if join.Type != tt.joinType || join.Predicate == nil {
+				t.Fatalf("join = %#v", join)
+			}
+
+			operation, ok := join.Predicate.Value.(Operation)
+			if !ok || operation.Kind != OperationEqual {
+				t.Fatalf("predicate = %#v", join.Predicate)
+			}
+
+			if operation.Left.Value != tt.leftCol ||
+				operation.Right.Value != tt.rightCol {
+				t.Fatalf("operation = %#v", operation)
+			}
+		})
 	}
 }

@@ -179,6 +179,12 @@ func TestBuildCrossJoinPlan(t *testing.T) {
 	if !ok {
 		t.Fatalf("root = %T, want NestedLoopJoinNode", plan.Node)
 	}
+	if outer.Predicate != nil {
+		t.Fatalf("CROSS JOIN predicate = %#v, want nil", outer.Predicate)
+	}
+	if outer.Outer {
+		t.Fatal("CROSS JOIN must not be outer")
+	}
 
 	inner, ok := outer.Left.(NestedLoopJoinNode)
 	if !ok {
@@ -198,5 +204,67 @@ func TestBuildCrossJoinPlan(t *testing.T) {
 	last, ok := outer.Right.(ScanNode)
 	if !ok || last.TableName != "t3" {
 		t.Fatalf("outer right = %#v", outer.Right)
+	}
+}
+
+func TestBuildConditionalJoinPlans(t *testing.T) {
+	tests := []struct {
+		name       string
+		sql        string
+		leftTable  string
+		rightTable string
+		outer      bool
+	}{
+		{
+			"inner",
+			"SELECT * FROM t1 JOIN t2 ON a = b;",
+			"t1", "t2", false,
+		},
+		{
+			"left",
+			"SELECT * FROM t1 LEFT JOIN t2 ON a = b;",
+			"t1", "t2", true,
+		},
+		{
+			// RIGHT JOIN 被规范化成 t2 LEFT JOIN t1
+			"right",
+			"SELECT * FROM t1 RIGHT JOIN t2 ON a = b;",
+			"t2", "t1", true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			statement, err := parser.Parse(tt.sql)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			plan, err := Build(statement)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			join, ok := plan.Node.(NestedLoopJoinNode)
+			if !ok {
+				t.Fatalf("node = %T", plan.Node)
+			}
+
+			left, leftOK := join.Left.(ScanNode)
+			right, rightOK := join.Right.(ScanNode)
+			if !leftOK || !rightOK {
+				t.Fatalf("inputs = (%T, %T), want ScanNode", join.Left, join.Right)
+			}
+
+			if left.TableName != tt.leftTable || right.TableName != tt.rightTable {
+				t.Fatalf(
+					"tables = (%q, %q), want (%q, %q)", left.TableName, right.TableName, tt.leftTable, tt.rightTable,
+				)
+			}
+
+			if join.Outer != tt.outer || join.Predicate == nil {
+				t.Fatalf("join = %#v", join)
+			}
+		})
 	}
 }

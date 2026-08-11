@@ -105,6 +105,10 @@ func (ProjectionNode) node() {}
 type NestedLoopJoinNode struct {
 	Left  Node
 	Right Node
+	// Predicate 为 nil 表示 CROSS JOIN
+	Predicate *parser.Expression
+	// Outer 为 true 表示保留左侧未匹配的行
+	Outer bool
 }
 
 func (NestedLoopJoinNode) node() {}
@@ -275,22 +279,52 @@ func buildFromItem(item parser.FromItem) (Node, error) {
 		return ScanNode{item.Name, nil}, nil
 
 	case parser.JoinFromItem:
-		if item.Type != parser.JoinCross {
-			return nil, fmt.Errorf("planner: join type %d is not implemented", item.Type)
+		if err := validateJoinItem(item); err != nil {
+			return nil, err
 		}
-		left, err := buildFromItem(item.Left)
+
+		leftItem := item.Left
+		rightItem := item.Right
+
+		// A RIGHT JOIN B 等价于：
+		//
+		// B LEFT JOIN A
+		if item.Type == parser.JoinRight {
+			leftItem, rightItem = rightItem, leftItem
+		}
+
+		left, err := buildFromItem(leftItem)
 		if err != nil {
 			return nil, fmt.Errorf("building left join input: %w", err)
 		}
 
-		right, err := buildFromItem(item.Right)
+		right, err := buildFromItem(rightItem)
 		if err != nil {
 			return nil, fmt.Errorf("building right join input: %w", err)
 		}
 
-		return NestedLoopJoinNode{left, right}, nil
+		return NestedLoopJoinNode{left, right, item.Predicate, item.Type == parser.JoinLeft || item.Type == parser.JoinRight}, nil
 
 	default:
 		return nil, fmt.Errorf("planner: unsupported FROM item %T", item)
 	}
+}
+
+func validateJoinItem(item parser.JoinFromItem) error {
+	switch item.Type {
+	case parser.JoinCross:
+		if item.Predicate != nil {
+			return fmt.Errorf("planner: CROSS JOIN cannot have a predicate")
+		}
+
+	case parser.JoinInner, parser.JoinLeft, parser.JoinRight:
+		if item.Predicate == nil {
+			return fmt.Errorf("planner: join type %d requires a predicate", item.Type)
+		}
+
+	default:
+		return fmt.Errorf("planner: unsupported join type %d", item.Type)
+	}
+
+	return nil
 }

@@ -598,17 +598,12 @@ func (p *Parser) parseFromClause() (FromItem, error) {
 	var item FromItem = TableFromItem{Name: tableName}
 
 	for {
-		current := p.peek()
-		if current.Kind != lexer.KeywordKind || current.Keyword != lexer.KeywordCross {
-			break
-		}
-
-		// CROSS
-		_ = p.next()
-
-		// CROSS 后紧跟 JOIN
-		if err := p.expectKeyword(lexer.KeywordJoin); err != nil {
+		joinType, found, err := p.parseJoinType()
+		if err != nil {
 			return nil, err
+		}
+		if !found {
+			break
 		}
 
 		rightName, err := p.expectIdentifier()
@@ -616,13 +611,91 @@ func (p *Parser) parseFromClause() (FromItem, error) {
 			return nil, err
 		}
 
+		var predicate *Expression
+		if joinType != JoinCross {
+			if err := p.expectKeyword(lexer.KeywordOn); err != nil {
+				return nil, err
+			}
+
+			left, err := p.parseExpression()
+			if err != nil {
+				return nil, fmt.Errorf("parser: parsing left JOIN operand: %w", err)
+			}
+			if err := p.expect(lexer.Equal); err != nil {
+				return nil, err
+			}
+
+			right, err := p.parseExpression()
+			if err != nil {
+				return nil, fmt.Errorf("parser: parsing right JOIN operand: %w", err)
+			}
+
+			// Planner 会将 RIGHT JOIN 的左右数据交换,这里也将条件交换，保持对应
+			if joinType == JoinRight {
+				left, right = right, left
+			}
+
+			cond := Expression{
+				Kind: OperationExpression,
+				Value: Operation{
+					Kind:  OperationEqual,
+					Left:  left,
+					Right: right,
+				},
+			}
+			predicate = &cond
+		}
+
 		// 左结合
 		item = JoinFromItem{
-			Left:  item,
-			Right: TableFromItem{Name: rightName},
-			Type:  JoinCross,
+			Left:      item,
+			Right:     TableFromItem{Name: rightName},
+			Type:      joinType,
+			Predicate: predicate,
 		}
 	}
 
 	return item, nil
+}
+
+// parseJoinType 尝试消费一个 Join 操作符
+//
+// found == false 表示当前位置不是 Join，调用者应结束 FROM 解析。
+// err != nil 表示看到了 LEFT、RIGHT 或 CROSS，但后面缺少 JOIN
+func (p *Parser) parseJoinType() (joinType JoinType, found bool, err error) {
+	current := p.peek()
+	if current.Kind != lexer.KeywordKind {
+		return 0, false, nil
+	}
+
+	switch current.Keyword {
+	case lexer.KeywordCross:
+		_ = p.next()
+		if err := p.expectKeyword(lexer.KeywordJoin); err != nil {
+			return 0, false, err
+		}
+		return JoinCross, true, nil
+
+	case lexer.KeywordJoin:
+		_ = p.next()
+		return JoinInner, true, nil
+
+	case lexer.KeywordLeft:
+		_ = p.next()
+		if err := p.expectKeyword(lexer.KeywordJoin); err != nil {
+			return 0, false, err
+		}
+		return JoinLeft, true, nil
+
+	case lexer.KeywordRight:
+		_ = p.next()
+		if err := p.expectKeyword(lexer.KeywordJoin); err != nil {
+			return 0, false, err
+		}
+		return JoinRight, true, nil
+
+	default:
+		return 0, false, nil
+	}
+
 }
