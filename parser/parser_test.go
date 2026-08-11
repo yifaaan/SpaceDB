@@ -175,3 +175,40 @@ func TestParserKeepsLexerErrors(t *testing.T) {
 		t.Fatalf("error = %v", err)
 	}
 }
+
+func TestParseSelectProjection(t *testing.T) {
+	statement, err := Parse("SELECT id, name AS username, 100 AS fixed FROM users;")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	selectStatement, ok := statement.(SelectStatement)
+	if !ok {
+		t.Fatalf("statement type = %T, want SelectStatement", statement)
+	}
+
+	if len(selectStatement.SelectItems) != 3 {
+		t.Fatalf("select items = %#v, want 3 items", selectStatement.SelectItems)
+	}
+
+	id := selectStatement.SelectItems[0]
+	if id.Expression.Kind != ColumnReference || id.Expression.Value != "id" || id.Alias != nil {
+		t.Fatalf("first select item = %#v", id)
+	}
+
+	name := selectStatement.SelectItems[1]
+	if name.Expression.Kind != ColumnReference ||
+		name.Expression.Value != "name" ||
+		name.Alias == nil ||
+		*name.Alias != "username" {
+		t.Fatalf("second select item = %#v", name)
+	}
+
+	fixed := selectStatement.SelectItems[2]
+	if fixed.Expression.Kind != IntegerLiteral ||
+		fixed.Expression.Value != int64(100) ||
+		fixed.Alias == nil ||
+		*fixed.Alias != "fixed" {
+		t.Fatalf("third select item = %#v", fixed)
+	}
+}

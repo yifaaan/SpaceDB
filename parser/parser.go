@@ -151,9 +151,6 @@ func (p *Parser) parseSelect() (Statement, error) {
 		}
 	}
 
-	if err := p.expect(lexer.Asterisk); err != nil {
-		return nil, err
-	}
 	if err := p.expectKeyword(lexer.KeywordFrom); err != nil {
 		return nil, err
 	}
