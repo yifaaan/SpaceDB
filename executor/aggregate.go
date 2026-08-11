@@ -105,6 +105,9 @@ func buildAggregateCalculator(name string) (aggregateCalculator, error) {
 	case "MAX":
 		return maxCalculator{}, nil
 
+	case "SUM":
+		return sumCalculator{}, nil
+
 	default:
 		return nil, fmt.Errorf("aggregate function %q is not implemented", name)
 	}
@@ -197,4 +200,54 @@ func calculateExtreme(columnName string, columns []string, rows []types.Row, min
 	}
 
 	return extreme, nil
+}
+
+// sumCalculator 实现 SUM(column)
+type sumCalculator struct{}
+
+func (sumCalculator) calculate(columnName string, columns []string, rows []types.Row) (types.Value, error) {
+	columnIndex := slices.Index(columns, columnName)
+	if columnIndex < 0 {
+		return types.Value{}, fmt.Errorf("column %q does not exist", columnName)
+	}
+
+	var sum float64
+
+	found := false
+
+	for rowIndex, row := range rows {
+		if columnIndex >= len(row) {
+			return types.Value{}, fmt.Errorf("row %d does not contain column %q at index %d", rowIndex+1, columnName, columnIndex)
+		}
+
+		value := row[columnIndex]
+
+		switch value.Kind {
+		case types.ValueNull:
+			// NULL
+			continue
+
+		case types.ValueInteger:
+			// 把整数转换成 f64
+			sum += float64(value.Integer)
+			found = true
+
+		case types.ValueFloat:
+			sum += value.Float
+			found = true
+
+		default:
+			return types.Value{}, fmt.Errorf(
+				"SUM requires a numeric column, but column %q contains value kind %d at row %d", columnName, value.Kind, rowIndex+1)
+		}
+	}
+
+	if !found {
+		return types.Value{Kind: types.ValueNull}, nil
+	}
+
+	return types.Value{
+		Kind:  types.ValueFloat,
+		Float: sum,
+	}, nil
 }

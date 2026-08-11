@@ -445,3 +445,76 @@ func TestSessionMinMaxAggregate(t *testing.T) {
 		}
 	}
 }
+
+func TestSessionSumAggregate(t *testing.T) {
+	session := NewSession(NewKVEngine(storage.NewMemoryEngine()))
+
+	for _, sql := range []string{
+		`CREATE TABLE totals (
+                        id INT PRIMARY KEY,
+                        integer_amount INT NULL,
+                        float_amount FLOAT NULL,
+                        label STRING NULL
+                );`,
+		`CREATE TABLE empty_totals (
+                        id INT PRIMARY KEY,
+                        amount INT NULL
+                );`,
+		`INSERT INTO totals VALUES
+                        (1, 10, 1.25, 'first'),
+                        (2, NULL, 2.5, 'second'),
+                        (3, -3, NULL, NULL);`,
+	} {
+		if _, err := session.Execute(sql); err != nil {
+			t.Fatalf("Execute(%q): %v", sql, err)
+		}
+	}
+
+	result, err := session.Execute(`
+                SELECT
+                        sum(integer_amount) AS integer_total,
+                        sum(float_amount) AS float_total
+                FROM totals;
+        `)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rows, ok := result.(executor.RowsResult)
+	if !ok {
+		t.Fatalf("result = %T, want executor.RowsResult", result)
+	}
+
+	wantColumns := []string{"integer_total", "float_total"}
+	if !slices.Equal(rows.Columns, wantColumns) {
+		t.Fatalf("columns = %#v, want %#v", rows.Columns, wantColumns)
+	}
+
+	if len(rows.Rows) != 1 || len(rows.Rows[0]) != 2 {
+		t.Fatalf("rows = %#v, want one row with two values", rows.Rows)
+	}
+
+	values := rows.Rows[0]
+
+	if values[0].Kind != types.ValueFloat || values[0].Float != 7 {
+		t.Fatalf("sum(integer_amount) = %#v, want float 7", values[0])
+	}
+
+	if values[1].Kind != types.ValueFloat || values[1].Float != 3.75 {
+		t.Fatalf("sum(float_amount) = %#v, want float 3.75", values[1])
+	}
+
+	result, err = session.Execute("SELECT sum(amount) FROM empty_totals;")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	emptyRows := result.(executor.RowsResult)
+	if len(emptyRows.Rows) != 1 || len(emptyRows.Rows[0]) != 1 || emptyRows.Rows[0][0].Kind != types.ValueNull {
+		t.Fatalf("empty SUM rows = %#v, want [[NULL]]", emptyRows.Rows)
+	}
+
+	if _, err := session.Execute("SELECT sum(label) FROM totals;"); err == nil {
+		t.Fatal("SUM on string column succeeded, want error")
+	}
+}
