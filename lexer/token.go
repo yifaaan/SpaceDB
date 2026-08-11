@@ -51,6 +51,10 @@ const (
 
 	KeywordCross Keyword = "CROSS"
 	KeywordJoin  Keyword = "JOIN"
+
+	KeywordLeft  Keyword = "LEFT"
+	KeywordRight Keyword = "RIGHT"
+	KeywordOn    Keyword = "ON"
 )
 
 type Kind uint8
@@ -91,7 +95,8 @@ func KeywordFromIdentifier(identifier string) (Keyword, bool) {
 		KeywordUpdate, KeywordSet, KeywordWhere, KeywordDelete,
 		KeywordOrder, KeywordBy, KeywordAsc, KeywordDesc,
 		KeywordLimit, KeywordOffset, KeywordAs,
-		KeywordCross, KeywordJoin:
+		KeywordCross, KeywordJoin,
+		KeywordLeft, KeywordRight, KeywordOn:
 		return keyword, true
 	default:
 		return "", false

@@ -15,22 +15,50 @@ const (
 	FloatLiteral
 	StringLiteral
 
+	// OperationExpression 由运算符连接的表达式
+	// 当前只支持 ON left_column = right_column
+	OperationExpression
+
 	// ColumnReference 表示 SELECT 中引用某个表字段
 	//
 	// 如 SELECT name FROM users 中的 name
 	ColumnReference
 )
 
+type OperationKind uint8
+
+const (
+	OperationEqual OperationKind = iota
+)
+
+// Operation 表示二元表达式, Expression.Value类型
+//
+//	LEFT JOIN scores ON users_id = score_user_id
+//
+// 其中 ON 后面的部分表示为：
+//
+//	Operation{
+//	    Kind:  OperationEqual,
+//	    Left:  ColumnReference(users_id),
+//	    Right: ColumnReference(score_user_id),
+//	}
+type Operation struct {
+	Kind  OperationKind
+	Left  Expression
+	Right Expression
+}
+
 // Expression SQL 表达式
 //
 // Value 的实际类型取决于 Kind：
 //
-//	Null             -> nil
-//	BooleanLiteral   -> bool
-//	IntegerLiteral   -> int64
-//	FloatLiteral     -> float64
-//	StringLiteral    -> string
-//	ColumnReference  -> string，保存列名
+//		Null             -> nil
+//		BooleanLiteral   -> bool
+//		IntegerLiteral   -> int64
+//		FloatLiteral     -> float64
+//		StringLiteral    -> string
+//		ColumnReference  -> string，保存列名
+//	   	OperationExpression -> Operation
 type Expression struct {
 	Kind  ExpressionKind
 	Value any // nil / bool / int64 / float64 / string / string
@@ -153,6 +181,12 @@ type JoinFromItem struct {
 	Left  FromItem
 	Right FromItem
 	Type  JoinType
+
+	// Predicate Join 匹配条件
+	//
+	// CROSS JOIN 没有 ON 条件，为 nil；
+	// INNER、LEFT、RIGHT JOIN 必须是非 nil
+	Predicate *Expression
 }
 
 func (JoinFromItem) fromItem() {}

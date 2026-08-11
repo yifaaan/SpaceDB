@@ -18,6 +18,7 @@ func TestLexerTokens(t *testing.T) {
 		{"whitespace", " \t\r\nSELECT", []Kind{KeywordKind, EndOfInput}},
 		{"number then identifier", "12abc", []Kind{Number, Identifier, EndOfInput}},
 		{"cross join", "SELECT * FROM t1 CROSS JOIN t2;", []Kind{KeywordKind, Asterisk, KeywordKind, Identifier, KeywordKind, KeywordKind, Identifier, Semicolon, EndOfInput}},
+		{"outer join", "t1 LEFT JOIN t2 ON a = b", []Kind{Identifier, KeywordKind, KeywordKind, Identifier, KeywordKind, Identifier, Equal, Identifier, EndOfInput}},
 	}
 
 	for _, tt := range tests {
