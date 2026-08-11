@@ -115,3 +115,51 @@ func TestBuildUpdatePlan(t *testing.T) {
 		t.Fatalf("scan filter = %#v", scan.Filter)
 	}
 }
+
+func TestBuildProjectionPlan(t *testing.T) {
+	stmt, err := parser.Parse("SELECT name AS username, id FROM users ORDER BY score DESC LIMIT 10 OFFSET 2;")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	plan, err := Build(stmt)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	projection, ok := plan.Node.(ProjectionNode)
+	if !ok {
+		t.Fatalf("root node = %T, want ProjectionNode", plan.Node)
+	}
+	if len(projection.Items) != 2 {
+		t.Fatalf("projection items = %#v", projection.Items)
+	}
+
+	if projection.Items[0].Alias == nil || *projection.Items[0].Alias != "username" {
+		t.Fatalf("first projection item = %#v", projection.Items[0])
+	}
+
+	limit, ok := projection.Source.(LimitNode)
+	if !ok {
+		t.Fatalf("projection source = %T, want LimitNode", projection.Source)
+	}
+
+	offset, ok := limit.Source.(OffsetNode)
+	if !ok {
+		t.Fatalf("limit source = %T, want OffsetNode", limit.Source)
+	}
+
+	order, ok := offset.Source.(OrderNode)
+	if !ok {
+		t.Fatalf("offset source = %T, want OrderNode", offset.Source)
+	}
+
+	scan, ok := order.Source.(ScanNode)
+	if !ok {
+		t.Fatalf("order source = %T, want ScanNode", order.Source)
+	}
+
+	if scan.TableName != "users" {
+		t.Fatalf("scan table = %q, want users", scan.TableName)
+	}
+}

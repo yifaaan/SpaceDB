@@ -71,3 +71,48 @@ func TestSessionSelectMissingTable(t *testing.T) {
 		t.Fatal("expected missing-table error")
 	}
 }
+
+func TestSessionSelectProjection(t *testing.T) {
+	session := NewSession(NewKVEngine(storage.NewMemoryEngine()))
+
+	_, err := session.Execute(`
+                CREATE TABLE users (
+                        id INT PRIMARY KEY,
+                        name STRING NOT NULL,
+                        score INT NOT NULL
+                );
+        `)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := session.Execute(
+		"INSERT INTO users VALUES " +
+			"(1, 'alice', 80), (2, 'bob', 95);",
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := session.Execute("SELECT name AS username, id, 100 AS fixed FROM users ORDER BY score DESC;")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rows, ok := result.(executor.RowsResult)
+	if !ok {
+		t.Fatalf("result = %T, want executor.RowsResult", result)
+	}
+
+	wantColumns := []string{"username", "id", "fixed"}
+	if !slices.Equal(rows.Columns, wantColumns) {
+		t.Fatalf("columns = %#v, want %#v", rows.Columns, wantColumns)
+	}
+
+	if len(rows.Rows) != 2 {
+		t.Fatalf("row count = %d, want 2", len(rows.Rows))
+	}
+
+	if rows.Rows[0][0].String != "bob" || rows.Rows[0][1].Integer != 2 || rows.Rows[0][2].Integer != 100 {
+		t.Fatalf("first row = %#v", rows.Rows[0])
+	}
+}
