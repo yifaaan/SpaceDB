@@ -99,6 +99,16 @@ type ProjectionNode struct {
 
 func (ProjectionNode) node() {}
 
+// NestedLoopJoinNode 表示嵌套循环 Join
+//
+// Left 和 Right 可以是 JoinNode，支持多表连接
+type NestedLoopJoinNode struct {
+	Left  Node
+	Right Node
+}
+
+func (NestedLoopJoinNode) node() {}
+
 // UpdateNode 表示 UPDATE 的执行计划
 //
 // Source 通常是一个 ScanNode，负责找出需要更新的行
@@ -156,10 +166,10 @@ func Build(stmt parser.Statement) (Plan, error) {
 		}, nil
 
 	case parser.SelectStatement:
-		// SELECT 首先要扫描行数据
-		var node Node = ScanNode{
-			TableName: stmt.TableName,
-			Filter:    nil,
+		// SELECT 首先构造tabel/join数据
+		node, err := buildFromItem(stmt.From)
+		if err != nil {
+			return Plan{}, fmt.Errorf("planner: building FROM clause: %w", err)
 		}
 
 		if len(stmt.OrderBy) != 0 {
@@ -256,5 +266,31 @@ func Build(stmt parser.Statement) (Plan, error) {
 			"planner: statement type %T is not implemented",
 			stmt,
 		)
+	}
+}
+
+func buildFromItem(item parser.FromItem) (Node, error) {
+	switch item := item.(type) {
+	case parser.TableFromItem:
+		return ScanNode{item.Name, nil}, nil
+
+	case parser.JoinFromItem:
+		if item.Type != parser.JoinCross {
+			return nil, fmt.Errorf("planner: join type %d is not implemented", item.Type)
+		}
+		left, err := buildFromItem(item.Left)
+		if err != nil {
+			return nil, fmt.Errorf("building left join input: %w", err)
+		}
+
+		right, err := buildFromItem(item.Right)
+		if err != nil {
+			return nil, fmt.Errorf("building right join input: %w", err)
+		}
+
+		return NestedLoopJoinNode{left, right}, nil
+
+	default:
+		return nil, fmt.Errorf("planner: unsupported FROM item %T", item)
 	}
 }

@@ -150,9 +150,9 @@ const (
 //	│   └── Table(t2)
 //	└── Table(t3)
 type JoinFromItem struct {
-	Left     FromItem
-	Right    FromItem
-	JoinType JoinType
+	Left  FromItem
+	Right FromItem
+	Type  JoinType
 }
 
 func (JoinFromItem) fromItem() {}
@@ -162,7 +162,8 @@ var _ FromItem = JoinFromItem{}
 
 // SelectStatement SELECT 语句的 AST
 type SelectStatement struct {
-	TableName string
+	// TableFromItem / JoinFromItem
+	From FromItem
 
 	// 空切片表示 SELECT *
 	SelectItems []SelectItem

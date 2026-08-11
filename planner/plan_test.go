@@ -163,3 +163,40 @@ func TestBuildProjectionPlan(t *testing.T) {
 		t.Fatalf("scan table = %q, want users", scan.TableName)
 	}
 }
+
+func TestBuildCrossJoinPlan(t *testing.T) {
+	stmt, err := parser.Parse("SELECT * FROM t1 CROSS JOIN t2 CROSS JOIN t3;")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	plan, err := Build(stmt)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	outer, ok := plan.Node.(NestedLoopJoinNode)
+	if !ok {
+		t.Fatalf("root = %T, want NestedLoopJoinNode", plan.Node)
+	}
+
+	inner, ok := outer.Left.(NestedLoopJoinNode)
+	if !ok {
+		t.Fatalf("left = %T, want NestedLoopJoinNode", outer.Left)
+	}
+
+	left, ok := inner.Left.(ScanNode)
+	if !ok || left.TableName != "t1" {
+		t.Fatalf("inner left = %#v", inner.Left)
+	}
+
+	right, ok := inner.Right.(ScanNode)
+	if !ok || right.TableName != "t2" {
+		t.Fatalf("inner right = %#v", inner.Right)
+	}
+
+	last, ok := outer.Right.(ScanNode)
+	if !ok || last.TableName != "t3" {
+		t.Fatalf("outer right = %#v", outer.Right)
+	}
+}

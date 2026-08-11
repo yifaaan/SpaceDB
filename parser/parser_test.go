@@ -17,7 +17,8 @@ func TestParserStatements(t *testing.T) {
 			sql:  "  SeLeCt * FROM users; ",
 			want: func(t *testing.T, statement Statement) {
 				selectStatement, ok := statement.(SelectStatement)
-				if !ok || selectStatement.TableName != "users" {
+				from, fromOk := selectStatement.From.(TableFromItem)
+				if !ok || !fromOk || from.Name != "users" {
 					t.Fatalf("statement = %#v", statement)
 				}
 			},

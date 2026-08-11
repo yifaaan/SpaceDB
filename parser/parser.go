@@ -151,12 +151,9 @@ func (p *Parser) parseSelect() (Statement, error) {
 		}
 	}
 
-	if err := p.expectKeyword(lexer.KeywordFrom); err != nil {
-		return nil, err
-	}
-	tableName, err := p.expectIdentifier()
+	from, err := p.parseFromClause()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("parser: parsing FROM clause: %w", err)
 	}
 
 	// ORDER BY
@@ -233,7 +230,7 @@ func (p *Parser) parseSelect() (Statement, error) {
 	}
 
 	return SelectStatement{
-		TableName:   tableName,
+		From:        from,
 		SelectItems: selectItems,
 		OrderBy:     orderBy,
 		Limit:       limit,
@@ -586,4 +583,46 @@ func (p *Parser) parseWhereFilter() (*EqualityFilter, error) {
 		Column: c,
 		Value:  v,
 	}, nil
+}
+
+func (p *Parser) parseFromClause() (FromItem, error) {
+	if err := p.expectKeyword(lexer.KeywordFrom); err != nil {
+		return nil, err
+	}
+
+	tableName, err := p.expectIdentifier()
+	if err != nil {
+		return nil, err
+	}
+
+	var item FromItem = TableFromItem{Name: tableName}
+
+	for {
+		current := p.peek()
+		if current.Kind != lexer.KeywordKind || current.Keyword != lexer.KeywordCross {
+			break
+		}
+
+		// CROSS
+		_ = p.next()
+
+		// CROSS 后紧跟 JOIN
+		if err := p.expectKeyword(lexer.KeywordJoin); err != nil {
+			return nil, err
+		}
+
+		rightName, err := p.expectIdentifier()
+		if err != nil {
+			return nil, err
+		}
+
+		// 左结合
+		item = JoinFromItem{
+			Left:  item,
+			Right: TableFromItem{Name: rightName},
+			Type:  JoinCross,
+		}
+	}
+
+	return item, nil
 }
