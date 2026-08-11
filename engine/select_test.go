@@ -116,3 +116,64 @@ func TestSessionSelectProjection(t *testing.T) {
 		t.Fatalf("first row = %#v", rows.Rows[0])
 	}
 }
+
+func TestSessionCrossJoin(t *testing.T) {
+	session := NewSession(NewKVEngine(storage.NewMemoryEngine()))
+
+	statements := []string{
+		"CREATE TABLE t1 (a INT PRIMARY KEY);",
+		"CREATE TABLE t2 (b INT PRIMARY KEY);",
+		"CREATE TABLE t3 (c INT PRIMARY KEY);",
+		"INSERT INTO t1 VALUES (1), (2);",
+		"INSERT INTO t2 VALUES (10), (20);",
+		"INSERT INTO t3 VALUES (100), (200);",
+	}
+
+	for _, sql := range statements {
+		if _, err := session.Execute(sql); err != nil {
+			t.Fatalf("Execute(%q): %v", sql, err)
+		}
+	}
+
+	result, err := session.Execute("SELECT * FROM t1 CROSS JOIN t2 CROSS JOIN t3;")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rows, ok := result.(executor.RowsResult)
+	if !ok {
+		t.Fatalf("result = %T, want executor.RowsResult", result)
+	}
+
+	if want := []string{"a", "b", "c"}; !slices.Equal(rows.Columns, want) {
+		t.Fatalf("columns = %#v, want %#v", rows.Columns, want)
+	}
+
+	// 2 × 2 × 2
+	if len(rows.Rows) != 8 {
+		t.Fatalf("row count = %d, want 8", len(rows.Rows))
+	}
+
+	seen := make(map[[3]int64]bool)
+	for _, row := range rows.Rows {
+		if len(row) != 3 {
+			t.Fatalf("row = %#v, want 3 values", row)
+		}
+
+		seen[[3]int64{
+			row[0].Integer,
+			row[1].Integer,
+			row[2].Integer,
+		}] = true
+	}
+
+	for _, a := range []int64{1, 2} {
+		for _, b := range []int64{10, 20} {
+			for _, c := range []int64{100, 200} {
+				if !seen[[3]int64{a, b, c}] {
+					t.Fatalf("missing combination (%d, %d, %d)", a, b, c)
+				}
+			}
+		}
+	}
+}
