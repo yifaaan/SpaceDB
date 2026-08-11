@@ -257,3 +257,191 @@ func TestSessionConditionalJoins(t *testing.T) {
 		})
 	}
 }
+
+func TestSessionCountAggregate(t *testing.T) {
+	session := NewSession(NewKVEngine(storage.NewMemoryEngine()))
+
+	for _, sql := range []string{
+		"CREATE TABLE metrics (id INT PRIMARY KEY, note STRING NULL);",
+		"CREATE TABLE empty_metrics (id INT PRIMARY KEY);",
+		"INSERT INTO metrics VALUES (1, 'x'), (2, NULL), (3, 'z');",
+	} {
+		if _, err := session.Execute(sql); err != nil {
+			t.Fatalf("Execute(%q): %v", sql, err)
+		}
+	}
+
+	tests := []struct {
+		name       string
+		sql        string
+		wantColumn string
+		wantCount  int64
+	}{
+		{
+			name:       "count every non-null primary key",
+			sql:        "SELECT count(id) AS total FROM metrics;",
+			wantColumn: "total",
+			wantCount:  3,
+		},
+		{
+			name:       "ignore null values",
+			sql:        "SELECT count(note) FROM metrics;",
+			wantColumn: "count",
+			wantCount:  2,
+		},
+		{
+			name:       "empty table still produces one row",
+			sql:        "SELECT count(id) FROM empty_metrics;",
+			wantColumn: "count",
+			wantCount:  0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := session.Execute(tt.sql)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			rows, ok := result.(executor.RowsResult)
+			if !ok {
+				t.Fatalf(
+					"result = %T, want executor.RowsResult",
+					result,
+				)
+			}
+
+			if !slices.Equal(rows.Columns, []string{tt.wantColumn}) {
+				t.Fatalf(
+					"columns = %#v, want [%q]",
+					rows.Columns,
+					tt.wantColumn,
+				)
+			}
+
+			if len(rows.Rows) != 1 {
+				t.Fatalf(
+					"row count = %d, want 1",
+					len(rows.Rows),
+				)
+			}
+
+			if len(rows.Rows[0]) != 1 {
+				t.Fatalf(
+					"value count = %d, want 1",
+					len(rows.Rows[0]),
+				)
+			}
+
+			value := rows.Rows[0][0]
+			if value.Kind != types.ValueInteger ||
+				value.Integer != tt.wantCount {
+				t.Fatalf(
+					"value = %#v, want integer %d",
+					value,
+					tt.wantCount,
+				)
+			}
+		})
+	}
+}
+
+func TestSessionMinMaxAggregate(t *testing.T) {
+	session := NewSession(NewKVEngine(storage.NewMemoryEngine()))
+
+	for _, sql := range []string{
+		`CREATE TABLE measurements (
+                        id INT PRIMARY KEY,
+                        score FLOAT NULL,
+                        label STRING NULL
+                );`,
+		`CREATE TABLE empty_measurements (
+                        id INT PRIMARY KEY,
+                        score FLOAT NULL
+                );`,
+		`INSERT INTO measurements VALUES
+                        (1, 8.5, 'beta'),
+                        (2, NULL, 'alpha'),
+                        (3, 2.25, NULL),
+                        (4, 10.75, 'gamma');`,
+	} {
+		if _, err := session.Execute(sql); err != nil {
+			t.Fatalf("Execute(%q): %v", sql, err)
+		}
+	}
+
+	result, err := session.Execute(`
+                SELECT
+                        min(score) AS lowest,
+                        max(score) AS highest,
+                        min(label),
+                        max(label)
+                FROM measurements;
+        `)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rows, ok := result.(executor.RowsResult)
+	if !ok {
+		t.Fatalf(
+			"result = %T, want executor.RowsResult",
+			result,
+		)
+	}
+
+	wantColumns := []string{"lowest", "highest", "min", "max"}
+	if !slices.Equal(rows.Columns, wantColumns) {
+		t.Fatalf(
+			"columns = %#v, want %#v",
+			rows.Columns,
+			wantColumns,
+		)
+	}
+
+	if len(rows.Rows) != 1 || len(rows.Rows[0]) != 4 {
+		t.Fatalf("rows = %#v, want one row with four values", rows.Rows)
+	}
+
+	values := rows.Rows[0]
+
+	if values[0].Kind != types.ValueFloat || values[0].Float != 2.25 {
+		t.Fatalf("min(score) = %#v, want float 2.25", values[0])
+	}
+	if values[1].Kind != types.ValueFloat || values[1].Float != 10.75 {
+		t.Fatalf("max(score) = %#v, want float 10.75", values[1])
+	}
+	if values[2].Kind != types.ValueString || values[2].String != "alpha" {
+		t.Fatalf("min(label) = %#v, want alpha", values[2])
+	}
+	if values[3].Kind != types.ValueString || values[3].String != "gamma" {
+		t.Fatalf("max(label) = %#v, want gamma", values[3])
+	}
+
+	result, err = session.Execute(`
+                SELECT min(score), max(score)
+                FROM empty_measurements;
+        `)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	emptyRows := result.(executor.RowsResult)
+	if len(emptyRows.Rows) != 1 || len(emptyRows.Rows[0]) != 2 {
+		t.Fatalf(
+			"empty aggregate rows = %#v, want one row with two values",
+			emptyRows.Rows,
+		)
+	}
+
+	for i, value := range emptyRows.Rows[0] {
+		if value.Kind != types.ValueNull {
+			t.Fatalf(
+				"empty aggregate value %d = %#v, want NULL",
+				i,
+				value,
+			)
+		}
+	}
+}

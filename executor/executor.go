@@ -577,6 +577,17 @@ func Build(node planner.Node) (Executor, error) {
 			Limit:  node.Limit,
 		}, nil
 
+	case planner.AggregateNode:
+		source, err := Build(node.Source)
+		if err != nil {
+			return nil, fmt.Errorf("executor: building aggregate source: %w", err)
+		}
+
+		return AggregateExecutor{
+			Source: source,
+			Items:  node.Items,
+		}, nil
+
 	case planner.ProjectionNode:
 		// Projection 的数据来源可能是 Scan、Order、Offset 或 Limit
 		// 因此继续通过 Build 递归构造，不能直接假设它是 ScanNode
