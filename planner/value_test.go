@@ -21,7 +21,7 @@ func TestValueFromExpression(t *testing.T) {
 		{"float", parser.Expression{Kind: parser.FloatLiteral, Value: 3.14},
 			types.Value{Kind: types.ValueFloat, Float: 3.14}},
 		{"string", parser.Expression{Kind: parser.StringLiteral, Value: "alice"},
-			types.Value{Kind: types.ValueString, String: "alice"}},
+			types.Value{Kind: types.ValueString, Str: "alice"}},
 	}
 
 	for _, tt := range tests {

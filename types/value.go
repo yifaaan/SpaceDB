@@ -2,6 +2,7 @@ package types
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -22,7 +23,7 @@ type Value struct {
 	Boolean bool
 	Integer int64
 	Float   float64
-	String  string
+	Str     string
 }
 
 // DataType 返回 Value 对应的 SQL 数据类型
@@ -107,9 +108,26 @@ func (v Value) Compare(other Value) (int, error) {
 		return 0, nil
 
 	case v.Kind == ValueString && other.Kind == ValueString:
-		return strings.Compare(v.String, other.String), nil
+		return strings.Compare(v.Str, other.Str), nil
 
 	default:
 		return 0, fmt.Errorf("types: cannot compare value kinds %d and %d", v.Kind, other.Kind)
+	}
+}
+
+func (v Value) String() string {
+	switch v.Kind {
+	case ValueNull:
+		return "NULL"
+	case ValueBoolean:
+		return strconv.FormatBool(v.Boolean)
+	case ValueInteger:
+		return strconv.FormatInt(v.Integer, 10)
+	case ValueFloat:
+		return strconv.FormatFloat(v.Float, 'g', -1, 64)
+	case ValueString:
+		return v.Str
+	default:
+		return fmt.Sprintf("<invalid value kind %d>", v.Kind)
 	}
 }

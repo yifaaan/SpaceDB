@@ -387,9 +387,9 @@ func encodePrimaryKey(value types.Value) ([]byte, error) {
 		return encoded, nil
 
 	case types.ValueString:
-		encoded := make([]byte, 0, 1+len(value.String))
+		encoded := make([]byte, 0, 1+len(value.Str))
 		encoded = append(encoded, primaryKeyString)
-		encoded = append(encoded, value.String...)
+		encoded = append(encoded, value.Str...)
 		return encoded, nil
 
 	default:

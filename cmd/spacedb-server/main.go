@@ -15,7 +15,7 @@ import (
 	"syscall"
 
 	"spacedb/engine"
-	"spacedb/parser"
+	"spacedb/executor"
 	"spacedb/storage"
 )
 
@@ -64,7 +64,8 @@ func (s *Server) Serve(ctx context.Context, listener net.Listener) error {
 			})
 			defer stopConn()
 
-			if err := s.handleConnection(ctx, conn); err != nil && ctx.Err() != nil {
+			if err := s.handleConnection(ctx, conn); err != nil &&
+				ctx.Err() == nil {
 				s.logger.Error(
 					"connection failed",
 					"remote", conn.RemoteAddr(),
@@ -76,13 +77,12 @@ func (s *Server) Serve(ctx context.Context, listener net.Listener) error {
 }
 
 func (s *Server) handleConnection(ctx context.Context, conn net.Conn) error {
-	// 每个连接拥有自己的 Session。
-	//
-	// Session 本身不长期持有事务。每次 Execute 都会：
-	// Begin -> Execute -> Commit/Rollback。
 	session := engine.NewSession(s.engine)
+
 	scanner := bufio.NewScanner(conn)
 	scanner.Buffer(make([]byte, 4096), maxRequestSize)
+
+	writer := bufio.NewWriter(conn)
 
 	for scanner.Scan() {
 		sql := strings.TrimSpace(scanner.Text())
@@ -91,24 +91,33 @@ func (s *Server) handleConnection(ctx context.Context, conn net.Conn) error {
 		}
 
 		result, err := session.Execute(sql)
+
+		var response string
 		if err != nil {
+			response = "ERROR: " + err.Error()
+
 			s.logger.Warn(
 				"SQL execution failed",
 				"remote", conn.RemoteAddr(),
 				"sql", sql,
 				"error", err,
 			)
-			continue
+		} else {
+			response = executor.FormatResult(result)
+
+			s.logger.Info(
+				"SQL executed",
+				"remote", conn.RemoteAddr(),
+				"sql", sql,
+			)
 		}
 
-		// 当前历史阶段只在服务端观察结果。
-		// 下一步实现 Client 时，再定义结果编码和写回协议。
-		s.logger.Info(
-			"SQL executed",
-			"remote", conn.RemoteAddr(),
-			"sql", sql,
-			"result", result,
-		)
+		if _, err := writer.WriteString(response + "\n"); err != nil {
+			return fmt.Errorf("server: writing response: %w", err)
+		}
+		if err := writer.Flush(); err != nil {
+			return fmt.Errorf("server: flushing response: %w", err)
+		}
 	}
 
 	if err := scanner.Err(); err != nil && ctx.Err() == nil {
@@ -119,17 +128,10 @@ func (s *Server) handleConnection(ctx context.Context, conn net.Conn) error {
 }
 
 func main() {
-	if len(os.Args) != 2 {
-		fmt.Fprintln(os.Stderr, "usage: spacedb <sql>")
-		os.Exit(2)
-	}
-
-	statement, err := parser.Parse(os.Args[1])
-	if err != nil {
+	if err := run(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-	fmt.Printf("%T: %v\n", statement, statement)
 }
 
 func run() error {

@@ -38,7 +38,7 @@ func evaluateExpression(
 
 	case parser.StringLiteral:
 		value := expression.Value.(string)
-		return types.Value{Kind: types.ValueString, String: value}, nil
+		return types.Value{Kind: types.ValueString, Str: value}, nil
 
 	case parser.ColumnReference:
 		columnName := expression.Value.(string)

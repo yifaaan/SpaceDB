@@ -29,7 +29,7 @@ func ValueFromExpression(expression parser.Expression) (types.Value, error) {
 
 	case parser.StringLiteral:
 		v := expression.Value.(string)
-		return types.Value{Kind: types.ValueString, String: v}, nil
+		return types.Value{Kind: types.ValueString, Str: v}, nil
 
 	default:
 		return types.Value{}, fmt.Errorf(
