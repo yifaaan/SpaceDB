@@ -748,3 +748,142 @@ func TestSessionGroupBy(t *testing.T) {
 		t.Fatalf("empty grouped rows = %#v, want zero rows", emptyRows.Rows)
 	}
 }
+
+func TestSessionWhereAndHavingFilters(t *testing.T) {
+	session := NewSession(NewKVEngine(storage.NewMemoryEngine()))
+
+	for _, sql := range []string{
+		`CREATE TABLE filter_values (
+			id INT PRIMARY KEY,
+			label STRING NULL,
+			amount FLOAT NULL,
+			active BOOL
+		);`,
+		`INSERT INTO filter_values VALUES
+			(1, 'aa', 3.1, true),
+			(2, 'bb', 5.3, true),
+			(3, NULL, NULL, false),
+			(4, NULL, 4.6, false),
+			(5, 'bb', 5.8, true),
+			(6, 'dd', 1.4, false);`,
+	} {
+		if _, err := session.Execute(sql); err != nil {
+			t.Fatalf("Execute(%q): %v", sql, err)
+		}
+	}
+
+	// Boolean 的排序规则是 false < true，因此 active < true 只保留
+	// active=false 的三行。
+	result, err := session.Execute(`
+		SELECT id
+		FROM filter_values
+		WHERE active < true
+		ORDER BY id;
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rows := result.(executor.RowsResult)
+	if len(rows.Rows) != 3 ||
+		rows.Rows[0][0].Integer != 3 ||
+		rows.Rows[1][0].Integer != 4 ||
+		rows.Rows[2][0].Integer != 6 {
+		t.Fatalf("boolean filter rows = %#v, want ids 3, 4, 6", rows.Rows)
+	}
+
+	// NULL > 4 的结果是 NULL，不是 false；Filter 只保留 true，故 id=3
+	// 不会进入结果。
+	result, err = session.Execute(`
+		SELECT id
+		FROM filter_values
+		WHERE amount > 4
+		ORDER BY id;
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rows = result.(executor.RowsResult)
+	if len(rows.Rows) != 3 ||
+		rows.Rows[0][0].Integer != 2 ||
+		rows.Rows[1][0].Integer != 4 ||
+		rows.Rows[2][0].Integer != 5 {
+		t.Fatalf("numeric filter rows = %#v, want ids 2, 4, 5", rows.Rows)
+	}
+
+	// SQL 中 NULL = NULL 仍然是 UNKNOWN，因此不会匹配任何行。
+	result, err = session.Execute(`
+		SELECT id
+		FROM filter_values
+		WHERE label = NULL;
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows = result.(executor.RowsResult)
+	if len(rows.Rows) != 0 {
+		t.Fatalf("NULL equality rows = %#v, want zero rows", rows.Rows)
+	}
+
+	// WHERE 先过滤原始行，再由 GROUP BY 聚合；HAVING 最后过滤聚合行。
+	result, err = session.Execute(`
+		SELECT label, sum(amount)
+		FROM filter_values
+		WHERE amount > 1
+		GROUP BY label
+		HAVING sum < 5
+		ORDER BY sum;
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rows = result.(executor.RowsResult)
+	wantColumns := []string{"label", "sum"}
+	if !slices.Equal(rows.Columns, wantColumns) {
+		t.Fatalf("filter aggregate columns = %#v, want %#v", rows.Columns, wantColumns)
+	}
+	if len(rows.Rows) != 3 {
+		t.Fatalf("HAVING row count = %d, want 3", len(rows.Rows))
+	}
+
+	// ORDER BY sum: dd=1.4、aa=3.1、NULL=4.6；bb=11.1 被 HAVING 丢弃。
+	if rows.Rows[0][0].String != "dd" || rows.Rows[0][1].Float != 1.4 ||
+		rows.Rows[1][0].String != "aa" || rows.Rows[1][1].Float != 3.1 ||
+		rows.Rows[2][0].Kind != types.ValueNull || rows.Rows[2][1].Float != 4.6 {
+		t.Fatalf("HAVING rows = %#v", rows.Rows)
+	}
+}
+
+func TestSessionWhereFiltersJoinedRows(t *testing.T) {
+	session := NewSession(NewKVEngine(storage.NewMemoryEngine()))
+
+	for _, sql := range []string{
+		"CREATE TABLE filter_left (a INT PRIMARY KEY);",
+		"CREATE TABLE filter_right (b INT PRIMARY KEY);",
+		"INSERT INTO filter_left VALUES (1), (2);",
+		"INSERT INTO filter_right VALUES (2), (3);",
+	} {
+		if _, err := session.Execute(sql); err != nil {
+			t.Fatalf("Execute(%q): %v", sql, err)
+		}
+	}
+
+	result, err := session.Execute(`
+		SELECT *
+		FROM filter_left CROSS JOIN filter_right
+		WHERE b > 2
+		ORDER BY a;
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rows := result.(executor.RowsResult)
+	if len(rows.Rows) != 2 ||
+		rows.Rows[0][0].Integer != 1 || rows.Rows[0][1].Integer != 3 ||
+		rows.Rows[1][0].Integer != 2 || rows.Rows[1][1].Integer != 3 {
+		t.Fatalf("joined filter rows = %#v", rows.Rows)
+	}
+}

@@ -39,6 +39,17 @@ type ScanNode struct {
 
 func (ScanNode) node() {}
 
+// FilterNode 对 Source 产生的每一行计算 Predicate
+//
+//	WHERE：  From -> Filter -> Aggregate
+//	HAVING： Aggregate -> Filter -> Order
+type FilterNode struct {
+	Source    Node
+	Predicate parser.Expression
+}
+
+func (FilterNode) node() {}
+
 // OrderNode ORDER BY 排序操作
 //
 // 如：
@@ -183,10 +194,28 @@ func Build(stmt parser.Statement) (Plan, error) {
 		}, nil
 
 	case parser.SelectStatement:
-		// SELECT 首先构造tabel/join数据
+		// FROM/JOIN 先产生完整的原始行
 		node, err := buildFromItem(stmt.From)
 		if err != nil {
-			return Plan{}, fmt.Errorf("planner: building FROM clause: %w", err)
+			return Plan{}, fmt.Errorf(
+				"planner: building FROM clause: %w",
+				err,
+			)
+		}
+
+		// WHERE 在 GROUP BY 和聚合之前执行。
+		//
+		//      SELECT category, sum(amount)
+		//      FROM sales
+		//      WHERE amount > 10
+		//      GROUP BY category;
+		//
+		// amount <= 10 的原始行不会进入任何分组。
+		if stmt.Where != nil {
+			node = FilterNode{
+				Source:    node,
+				Predicate: *stmt.Where,
+			}
 		}
 
 		groupByColumn := ""
@@ -260,6 +289,14 @@ func Build(stmt parser.Statement) (Plan, error) {
 				Source:  node,
 				Items:   stmt.SelectItems,
 				GroupBy: stmt.GroupBy,
+			}
+		}
+
+		// HAVING 在 AggregateNode 之后执行
+		if stmt.Having != nil {
+			node = FilterNode{
+				Source:    node,
+				Predicate: *stmt.Having,
 			}
 		}
 

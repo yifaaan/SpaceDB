@@ -524,6 +524,16 @@ func Build(node planner.Node) (Executor, error) {
 	case planner.ScanNode:
 		return ScanExecutor{TableName: node.TableName, Filter: node.Filter}, nil
 
+	case planner.FilterNode:
+		source, err := Build(node.Source)
+		if err != nil {
+			return nil, fmt.Errorf("executor: building filter source: %w", err)
+		}
+		return FilterExecutor{
+			Source:    source,
+			Predicate: node.Predicate,
+		}, nil
+
 	case planner.UpdateNode:
 		source, err := Build(node.Source)
 		if err != nil {

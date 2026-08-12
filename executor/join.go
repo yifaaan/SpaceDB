@@ -38,28 +38,34 @@ func (j NestedLoopJoinExecutor) Execute(txn Transaction) (ResultSet, error) {
 		return nil, fmt.Errorf("executor: right join input returned %T, want RowsResult", rightResult)
 	}
 
-	// ON
-	predicate, err := resolveJoinPredicate(j.Predicate, leftRows.Columns, rightRows.Columns)
-	if err != nil {
-		return nil, err
-	}
-
 	columns := slices.Concat(leftRows.Columns, rightRows.Columns)
 	rows := make([]types.Row, 0, len(leftRows.Rows)*len(rightRows.Rows))
 	for _, a := range leftRows.Rows {
 		matched := false
 		for _, b := range rightRows.Rows {
-			isMatch := predicate == nil
-			if predicate != nil {
-				lv := a[predicate.leftIndex]
-				rv := b[predicate.rightIndex]
+			isMatch := j.Predicate == nil
+			if j.Predicate != nil {
+				value, err := evaluateExpression(
+					*j.Predicate,
+					leftRows.Columns,
+					a,
+					rightRows.Columns,
+					b,
+				)
+				if err != nil {
+					return nil, fmt.Errorf("executor: evaluating JOIN predicate: %w", err)
+				}
 
-				if lv.Kind != types.ValueNull && rv.Kind != types.ValueNull {
-					cmp, err := lv.Compare(rv)
-					if err != nil {
-						return nil, fmt.Errorf("executor: comparing JOIN columns %q and %q: %w", predicate.leftName, predicate.rightName, err)
-					}
-					isMatch = cmp == 0
+				switch value.Kind {
+				case types.ValueNull:
+					isMatch = false
+				case types.ValueBoolean:
+					isMatch = value.Boolean
+				default:
+					return nil, fmt.Errorf(
+						"executor: JOIN predicate returned value kind %d, want boolean or NULL",
+						value.Kind,
+					)
 				}
 			}
 			if !isMatch {
@@ -80,49 +86,4 @@ func (j NestedLoopJoinExecutor) Execute(txn Transaction) (ResultSet, error) {
 	}
 
 	return RowsResult{columns, rows}, nil
-}
-
-type resolvedJoinPredicate struct {
-	leftIndex  int
-	rightIndex int
-	leftName   string
-	rightName  string
-}
-
-func resolveJoinPredicate(expression *parser.Expression, leftColumns []string, rightColumns []string) (*resolvedJoinPredicate, error) {
-	if expression == nil {
-		return nil, nil
-	}
-
-	if expression.Kind != parser.OperationExpression {
-		return nil, fmt.Errorf("executor: JOIN predicate has expression kind %d", expression.Kind)
-	}
-
-	op, ok := expression.Value.(parser.Operation)
-	if !ok || op.Kind != parser.OperationEqual {
-		return nil, fmt.Errorf("executor: unsupported JOIN predicate %#v", expression.Value)
-	}
-
-	leftName, leftOK := op.Left.Value.(string)
-	rightName, rightOK := op.Right.Value.(string)
-	if op.Left.Kind != parser.ColumnReference || !leftOK || op.Right.Kind != parser.ColumnReference || !rightOK {
-		return nil, fmt.Errorf("executor: JOIN operands must be column references")
-	}
-
-	leftIndex := slices.Index(leftColumns, leftName)
-	if leftIndex < 0 {
-		return nil, fmt.Errorf("executor: JOIN column %q does not exist in left input", leftName)
-	}
-
-	rightIndex := slices.Index(rightColumns, rightName)
-	if rightIndex < 0 {
-		return nil, fmt.Errorf("executor: JOIN column %q does not exist in right input", rightName)
-	}
-
-	return &resolvedJoinPredicate{
-		leftIndex,
-		rightIndex,
-		leftName,
-		rightName,
-	}, nil
 }

@@ -28,6 +28,11 @@ func TestBuildExecutor(t *testing.T) {
 			want: ScanExecutor{},
 		},
 		{
+			name: "filter",
+			node: planner.FilterNode{Source: planner.ScanNode{}},
+			want: FilterExecutor{},
+		},
+		{
 			name: "update",
 			node: planner.UpdateNode{Source: planner.ScanNode{}},
 			want: UpdateExecutor{},
@@ -57,6 +62,10 @@ func TestBuildExecutor(t *testing.T) {
 				}
 			case ScanExecutor:
 				if _, ok := got.(ScanExecutor); !ok {
+					t.Fatalf("executor = %T", got)
+				}
+			case FilterExecutor:
+				if _, ok := got.(FilterExecutor); !ok {
 					t.Fatalf("executor = %T", got)
 				}
 			case UpdateExecutor:
