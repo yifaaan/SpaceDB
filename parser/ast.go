@@ -32,19 +32,29 @@ type OperationKind uint8
 
 const (
 	OperationEqual OperationKind = iota
+	OperationGreaterThan
+	OperationLessThan
 )
 
 // Operation 表示二元表达式, Expression.Value类型
 //
-//	LEFT JOIN scores ON users_id = score_user_id
+//	WHERE score > 60
 //
-// 其中 ON 后面的部分表示为：
+// 表示为：
 //
 //	Operation{
-//	    Kind:  OperationEqual,
-//	    Left:  ColumnReference(users_id),
-//	    Right: ColumnReference(score_user_id),
+//	    Kind: OperationGreaterThan,
+//	    Left: Expression{
+//	        Kind:  ColumnReference,
+//	        Value: "score",
+//	    },
+//	    Right: Expression{
+//	        Kind:  IntegerLiteral,
+//	        Value: int64(60),
+//	    },
 //	}
+//
+// 当前支持 =、>、<
 type Operation struct {
 	Kind  OperationKind
 	Left  Expression
@@ -221,8 +231,13 @@ type SelectStatement struct {
 	// 空切片表示 SELECT *
 	SelectItems []SelectItem
 
+	Where *Expression
+
 	// GroupBy 保存 GROUP BY 后面的表达式
 	GroupBy *Expression
+
+	// Having 在聚合之后过滤聚合结果
+	Having *Expression
 
 	OrderBy []OrderBy
 

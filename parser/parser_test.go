@@ -375,3 +375,106 @@ func TestParseGroupByRequiresBy(t *testing.T) {
 		t.Fatalf("error = %v, want missing-BY error", err)
 	}
 }
+
+func TestParseSelectWhereAndHaving(t *testing.T) {
+	statement, err := Parse(`
+                SELECT category, sum(amount)
+                FROM sales
+                WHERE amount > 10
+                GROUP BY category
+                HAVING sum < 100
+                ORDER BY sum;
+        `)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	selectStatement, ok := statement.(SelectStatement)
+	if !ok {
+		t.Fatalf(
+			"statement = %T, want SelectStatement",
+			statement,
+		)
+	}
+
+	if selectStatement.Where == nil {
+		t.Fatal("Where = nil, want amount > 10")
+	}
+
+	whereOperation, ok := selectStatement.Where.Value.(Operation)
+	if !ok {
+		t.Fatalf(
+			"Where value = %T, want Operation",
+			selectStatement.Where.Value,
+		)
+	}
+
+	if whereOperation.Kind != OperationGreaterThan ||
+		whereOperation.Left.Kind != ColumnReference ||
+		whereOperation.Left.Value != "amount" ||
+		whereOperation.Right.Kind != IntegerLiteral ||
+		whereOperation.Right.Value != int64(10) {
+		t.Fatalf(
+			"Where operation = %#v, want amount > 10",
+			whereOperation,
+		)
+	}
+
+	if selectStatement.GroupBy == nil ||
+		selectStatement.GroupBy.Value != "category" {
+		t.Fatalf(
+			"GroupBy = %#v, want category",
+			selectStatement.GroupBy,
+		)
+	}
+
+	if selectStatement.Having == nil {
+		t.Fatal("Having = nil, want sum < 100")
+	}
+
+	havingOperation, ok := selectStatement.Having.Value.(Operation)
+	if !ok {
+		t.Fatalf(
+			"Having value = %T, want Operation",
+			selectStatement.Having.Value,
+		)
+	}
+
+	if havingOperation.Kind != OperationLessThan ||
+		havingOperation.Left.Kind != ColumnReference ||
+		havingOperation.Left.Value != "sum" ||
+		havingOperation.Right.Kind != IntegerLiteral ||
+		havingOperation.Right.Value != int64(100) {
+		t.Fatalf(
+			"Having operation = %#v, want sum < 100",
+			havingOperation,
+		)
+	}
+
+	if len(selectStatement.OrderBy) != 1 ||
+		selectStatement.OrderBy[0].Column != "sum" {
+		t.Fatalf(
+			"OrderBy = %#v, want sum",
+			selectStatement.OrderBy,
+		)
+	}
+}
+
+func TestParseComparisonRequiresOperator(t *testing.T) {
+	_, err := Parse(
+		"SELECT * FROM sales WHERE amount + 10;",
+	)
+	if err == nil {
+		t.Fatal("Parse succeeded without a comparison operator")
+	}
+
+	if !strings.Contains(
+		err.Error(),
+		"expected comparison operator",
+	) {
+		t.Fatalf(
+			"error = %v, want comparison-operator error",
+			err,
+		)
+	}
+}

@@ -39,6 +39,31 @@ func TestLexerTokens(t *testing.T) {
 				EndOfInput,
 			},
 		},
+		{
+			name:  "comparison symbols",
+			input: "=<>",
+			kinds: []Kind{
+				Equal,
+				LessThan,
+				GreaterThan,
+				EndOfInput,
+			},
+		},
+		{
+			name:  "where and having",
+			input: "WHERE amount > 10 HAVING sum < 100",
+			kinds: []Kind{
+				KeywordKind, // WHERE
+				Identifier,  // amount
+				GreaterThan,
+				Number,
+				KeywordKind, // HAVING
+				Identifier,  // sum
+				LessThan,
+				Number,
+				EndOfInput,
+			},
+		},
 	}
 
 	for _, tt := range tests {

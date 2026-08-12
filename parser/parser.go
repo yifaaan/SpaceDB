@@ -156,6 +156,13 @@ func (p *Parser) parseSelect() (Statement, error) {
 		return nil, fmt.Errorf("parser: parsing FROM clause: %w", err)
 	}
 
+	whereClause, err := p.parseOptionalComparison(
+		lexer.KeywordWhere,
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	// GROUP BY 必须出现在 FROM/JOIN 之后、ORDER BY 之前
 	//
 	// SELECT b, min(c)
@@ -177,6 +184,14 @@ func (p *Parser) parseSelect() (Statement, error) {
 		}
 
 		groupBy = &expression
+	}
+
+	// HAVING 在聚合完成后过滤结果行。
+	having, err := p.parseOptionalComparison(
+		lexer.KeywordHaving,
+	)
+	if err != nil {
+		return nil, err
 	}
 
 	// ORDER BY
@@ -255,7 +270,9 @@ func (p *Parser) parseSelect() (Statement, error) {
 	return SelectStatement{
 		From:        from,
 		SelectItems: selectItems,
+		Where:       whereClause,
 		GroupBy:     groupBy,
+		Having:      having,
 		OrderBy:     orderBy,
 		Limit:       limit,
 		Offset:      offset,
@@ -531,6 +548,63 @@ func (p *Parser) parseColumn() (Column, error) {
 		}
 	}
 	return column, nil
+}
+
+// parseOptionalComparison 解析一个可选的 WHERE 或 HAVING 子句
+//
+// 如果当前 Token 不是指定关键字，则返回 nil，不消费任何 Token
+func (p *Parser) parseOptionalComparison(keyword lexer.Keyword) (*Expression, error) {
+	current := p.peek()
+	if current.Kind != lexer.KeywordKind || current.Keyword != keyword {
+		return nil, nil
+	}
+
+	if err := p.expectKeyword(keyword); err != nil {
+		return nil, err
+	}
+
+	expression, err := p.parseComparisonExpression()
+	if err != nil {
+		return nil, fmt.Errorf("parser: parsing %s predicate: %w", keyword, err)
+	}
+
+	return &expression, nil
+}
+
+// parseComparisonExpression 解析一个二元比较表达式
+func (p *Parser) parseComparisonExpression() (Expression, error) {
+	left, err := p.parseExpression()
+	if err != nil {
+		return Expression{}, fmt.Errorf("parsing left comparison operand: %w", err)
+	}
+
+	operatorToken := p.next()
+
+	var operationKind OperationKind
+	switch operatorToken.Kind {
+	case lexer.Equal:
+		operationKind = OperationEqual
+	case lexer.GreaterThan:
+		operationKind = OperationGreaterThan
+	case lexer.LessThan:
+		operationKind = OperationLessThan
+	default:
+		return Expression{}, fmt.Errorf("expected comparison operator, got %s at %s", lexer.DescribeToken(operatorToken), lexer.DescribePosition(operatorToken.Offset))
+	}
+
+	right, err := p.parseExpression()
+	if err != nil {
+		return Expression{}, fmt.Errorf("parsing right comparison operand: %w", err)
+	}
+
+	return Expression{
+		Kind: OperationExpression,
+		Value: Operation{
+			Kind:  operationKind,
+			Left:  left,
+			Right: right,
+		},
+	}, nil
 }
 
 // parseExpression 解析常量表达式，目前支持四类字面量：

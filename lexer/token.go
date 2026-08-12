@@ -37,7 +37,8 @@ const (
 	KeywordDelete  Keyword = "DELETE"
 
 	// GROUP BY
-	KeywordGroup Keyword = "GROUP"
+	KeywordGroup  Keyword = "GROUP"
+	KeywordHaving Keyword = "HAVING"
 
 	// ORDER BY
 	KeywordOrder Keyword = "ORDER"
@@ -78,6 +79,8 @@ const (
 	Minus
 	Slash
 	Equal
+	GreaterThan
+	LessThan
 )
 
 type Token struct {
@@ -101,7 +104,7 @@ func KeywordFromIdentifier(identifier string) (Keyword, bool) {
 		KeywordLimit, KeywordOffset, KeywordAs,
 		KeywordCross, KeywordJoin,
 		KeywordLeft, KeywordRight, KeywordOn,
-		KeywordGroup:
+		KeywordGroup, KeywordHaving:
 		return keyword, true
 	default:
 		return "", false
@@ -138,6 +141,10 @@ func (k Kind) String() string {
 		return "'/'"
 	case Equal:
 		return "'='"
+	case GreaterThan:
+		return "'>'"
+	case LessThan:
+		return "'<'"
 	default:
 		return "unknown token"
 	}

@@ -179,6 +179,10 @@ func (l *Lexer) scanSymbol() (Token, error) {
 		kind = Slash
 	case '=':
 		kind = Equal
+	case '>':
+		kind = GreaterThan
+	case '<':
+		kind = LessThan
 	default:
 		return Token{}, fmt.Errorf("lexer: unexpected character %q at %s", l.peek(), DescribePosition(begin))
 	}
