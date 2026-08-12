@@ -54,7 +54,7 @@ func TestParserStatements(t *testing.T) {
 		},
 		{
 			name: "update",
-			sql:  "UPDATE users SET name = 'alice', age = 20 WHERE id = 1;",
+			sql:  "UPDATE users SET name = 'alice', age = 20 WHERE age > 18;",
 			want: func(t *testing.T, statement Statement) {
 				updateStatement, ok := statement.(UpdateStatement)
 				if !ok {
@@ -89,15 +89,24 @@ func TestParserStatements(t *testing.T) {
 				if updateStatement.Filter == nil {
 					t.Fatal("filter is nil")
 				}
-				if updateStatement.Filter.Column != "id" ||
-					updateStatement.Filter.Value.Value != int64(1) {
+
+				operation, ok := updateStatement.Filter.Value.(Operation)
+				if !ok {
+					t.Fatalf("filter value = %T, want Operation", updateStatement.Filter.Value)
+				}
+				if updateStatement.Filter.Kind != OperationExpression ||
+					operation.Kind != OperationGreaterThan ||
+					operation.Left.Kind != ColumnReference ||
+					operation.Left.Value != "age" ||
+					operation.Right.Kind != IntegerLiteral ||
+					operation.Right.Value != int64(18) {
 					t.Fatalf("filter = %#v", updateStatement.Filter)
 				}
 			},
 		},
 		{
 			name: "delete",
-			sql:  "DELETE FROM users WHERE id = 1;",
+			sql:  "DELETE FROM users WHERE age < 18;",
 			want: func(t *testing.T, statement Statement) {
 				deleteStatement, ok := statement.(DeleteStatement)
 				if !ok {
@@ -112,7 +121,14 @@ func TestParserStatements(t *testing.T) {
 					t.Fatalf("filter is nil")
 				}
 
-				if deleteStatement.Filter.Column != "id" || deleteStatement.Filter.Value.Value != int64(1) {
+				operation, ok := deleteStatement.Filter.Value.(Operation)
+				if !ok {
+					t.Fatalf("filter value = %T, want Operation", deleteStatement.Filter.Value)
+				}
+				if deleteStatement.Filter.Kind != OperationExpression ||
+					operation.Kind != OperationLessThan ||
+					operation.Left.Value != "age" ||
+					operation.Right.Value != int64(18) {
 					t.Fatalf("filter = %#v", deleteStatement.Filter)
 				}
 			},

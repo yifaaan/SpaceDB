@@ -66,14 +66,11 @@ func TestBuildScanPlan(t *testing.T) {
 		t.Fatalf("table name = %q, want users", node.TableName)
 	}
 
-	if node.Filter != nil {
-		t.Fatalf("SELECT scan filter = %#v, want nil", node.Filter)
-	}
 }
 
 func TestBuildUpdatePlan(t *testing.T) {
 	stmt, err := parser.Parse(
-		"UPDATE users SET name = 'alice', age = 20 WHERE id = 1;",
+		"UPDATE users SET name = 'alice', age = 20 WHERE age > 18;",
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -97,22 +94,54 @@ func TestBuildUpdatePlan(t *testing.T) {
 		t.Fatalf("assignments = %#v", update.Assignments)
 	}
 
-	scan, ok := update.Source.(ScanNode)
+	filter, ok := update.Source.(FilterNode)
 	if !ok {
-		t.Fatalf("source = %T, want ScanNode", update.Source)
+		t.Fatalf("source = %T, want FilterNode", update.Source)
 	}
 
+	operation, ok := filter.Predicate.Value.(parser.Operation)
+	if !ok || operation.Kind != parser.OperationGreaterThan {
+		t.Fatalf("predicate = %#v, want greater-than operation", filter.Predicate)
+	}
+
+	scan, ok := filter.Source.(ScanNode)
+	if !ok {
+		t.Fatalf("filter source = %T, want ScanNode", filter.Source)
+	}
 	if scan.TableName != "users" {
 		t.Fatalf("scan table = %q, want users", scan.TableName)
 	}
+}
 
-	if scan.Filter == nil {
-		t.Fatal("scan filter is nil")
+func TestBuildDeletePlanWithFilter(t *testing.T) {
+	stmt, err := parser.Parse("DELETE FROM users WHERE age < 18;")
+	if err != nil {
+		t.Fatal(err)
 	}
 
-	if scan.Filter.Column != "id" ||
-		scan.Filter.Value.Value != int64(1) {
-		t.Fatalf("scan filter = %#v", scan.Filter)
+	plan, err := Build(stmt)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	deleteNode, ok := plan.Node.(DeleteNode)
+	if !ok {
+		t.Fatalf("node = %T, want DeleteNode", plan.Node)
+	}
+
+	filter, ok := deleteNode.Source.(FilterNode)
+	if !ok {
+		t.Fatalf("source = %T, want FilterNode", deleteNode.Source)
+	}
+
+	operation, ok := filter.Predicate.Value.(parser.Operation)
+	if !ok || operation.Kind != parser.OperationLessThan {
+		t.Fatalf("predicate = %#v, want less-than operation", filter.Predicate)
+	}
+
+	scan, ok := filter.Source.(ScanNode)
+	if !ok || scan.TableName != "users" {
+		t.Fatalf("filter source = %#v, want users ScanNode", filter.Source)
 	}
 }
 

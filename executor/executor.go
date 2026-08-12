@@ -116,7 +116,6 @@ func (i InsertExecutor) Execute(txn Transaction) (ResultSet, error) {
 // ScanExecutor 对应 planner.ScanNode
 type ScanExecutor struct {
 	TableName string
-	Filter    *parser.EqualityFilter
 }
 
 func (s ScanExecutor) Execute(txn Transaction) (ResultSet, error) {
@@ -128,19 +127,9 @@ func (s ScanExecutor) Execute(txn Transaction) (ResultSet, error) {
 		return nil, fmt.Errorf("executor: table %q does not exist", s.TableName)
 	}
 
-	var filter *RowFilter
-	if s.Filter != nil {
-		value, err := planner.ValueFromExpression(s.Filter.Value)
-		if err != nil {
-			return nil, fmt.Errorf("executor: converting filter for column %q: %w", s.Filter.Column, err)
-		}
-		filter = &RowFilter{
-			Column: s.Filter.Column,
-			Value:  value,
-		}
-	}
-
-	rows, err := txn.ScanTable(s.TableName, filter)
+	// 条件由上层 FilterExecutor 执行；ScanTable 这里传 nil，
+	// 让 UPDATE/DELETE 和 SELECT 获得完全相同的原始行集合。
+	rows, err := txn.ScanTable(s.TableName, nil)
 	if err != nil {
 		return nil, fmt.Errorf("executor: scanning table %q: %w", s.TableName, err)
 	}
@@ -522,7 +511,7 @@ func Build(node planner.Node) (Executor, error) {
 		return InsertExecutor{TableName: node.TableName, Columns: node.Columns, Values: node.Values}, nil
 
 	case planner.ScanNode:
-		return ScanExecutor{TableName: node.TableName, Filter: node.Filter}, nil
+		return ScanExecutor{TableName: node.TableName}, nil
 
 	case planner.FilterNode:
 		source, err := Build(node.Source)

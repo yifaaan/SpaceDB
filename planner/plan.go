@@ -30,11 +30,10 @@ func (InsertNode) node() {}
 
 // ScanNode 表示表扫描。
 //
-// Filter 为 nil 表示扫描全部行；
-// 非 nil 时只返回满足“列 = 常量”的行
+// Scan 只负责读取一张表的全部可见行。WHERE 条件由上层 FilterNode
+// 统一执行，这样 SELECT、UPDATE 和 DELETE 都共享相同的比较与 NULL 语义。
 type ScanNode struct {
 	TableName string
-	Filter    *parser.EqualityFilter
 }
 
 func (ScanNode) node() {}
@@ -137,10 +136,11 @@ type NestedLoopJoinNode struct {
 
 func (NestedLoopJoinNode) node() {}
 
-// UpdateNode 表示 UPDATE 的执行计划
+// UpdateNode 表示 UPDATE 的执行计划。
 //
-// Source 通常是一个 ScanNode，负责找出需要更新的行
-// Assignments 保存每个目标列对应的新常量值
+// 有 WHERE 时 Source 是 FilterNode{Source: ScanNode{...}}；没有 WHERE 时
+// Source 直接是 ScanNode。UpdateExecutor 只修改 Source 最终返回的行。
+// Assignments 保存每个目标列对应的新常量值。
 type UpdateNode struct {
 	TableName   string
 	Source      Node
@@ -149,9 +149,10 @@ type UpdateNode struct {
 
 func (UpdateNode) node() {}
 
-// DeleteNode 表示 DELETE 的执行计划
+// DeleteNode 表示 DELETE 的执行计划。
 //
-// Source 是一个 ScanNode，负责找出待删除的行
+// 和 UpdateNode 相同，有 WHERE 时 Source 是 FilterNode 包装的 ScanNode；
+// DeleteExecutor 根据过滤后每一行的主键执行删除。
 type DeleteNode struct {
 	TableName string
 	Source    Node
@@ -364,9 +365,12 @@ func Build(stmt parser.Statement) (Plan, error) {
 		return Plan{Node: node}, nil
 
 	case parser.UpdateStatement:
-		source := ScanNode{
-			TableName: stmt.TableName,
-			Filter:    stmt.Filter,
+		// 先扫描，再通过通用 FilterNode 计算 WHERE。
+		// 不能把表达式塞进 ScanNode：Scan 只理解存储层的行读取，
+		// 而比较表达式还可能包含 NULL 和未来扩展的运算符。
+		var source Node = ScanNode{TableName: stmt.TableName}
+		if stmt.Filter != nil {
+			source = FilterNode{Source: source, Predicate: *stmt.Filter}
 		}
 
 		return Plan{
@@ -378,9 +382,9 @@ func Build(stmt parser.Statement) (Plan, error) {
 		}, nil
 
 	case parser.DeleteStatement:
-		source := ScanNode{
-			TableName: stmt.TableName,
-			Filter:    stmt.Filter,
+		var source Node = ScanNode{TableName: stmt.TableName}
+		if stmt.Filter != nil {
+			source = FilterNode{Source: source, Predicate: *stmt.Filter}
 		}
 
 		return Plan{
@@ -401,7 +405,7 @@ func Build(stmt parser.Statement) (Plan, error) {
 func buildFromItem(item parser.FromItem) (Node, error) {
 	switch item := item.(type) {
 	case parser.TableFromItem:
-		return ScanNode{item.Name, nil}, nil
+		return ScanNode{TableName: item.Name}, nil
 
 	case parser.JoinFromItem:
 		if err := validateJoinItem(item); err != nil {

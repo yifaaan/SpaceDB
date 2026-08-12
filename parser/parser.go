@@ -405,7 +405,7 @@ func (p *Parser) parseInsert() (Statement, error) {
 //
 //	UPDATE <表名>
 //	SET <列名> = <常量> [, <列名> = <常量> ...]
-//	[WHERE <列名> = <常量>]
+//	[WHERE <比较表达式>]
 func (p *Parser) parseUpdate() (Statement, error) {
 	if err := p.expectKeyword(lexer.KeywordUpdate); err != nil {
 		return nil, err
@@ -455,7 +455,7 @@ func (p *Parser) parseUpdate() (Statement, error) {
 	}
 
 	// WHERE
-	filter, err := p.parseWhereFilter()
+	filter, err := p.parseOptionalComparison(lexer.KeywordWhere)
 	if err != nil {
 		return nil, err
 	}
@@ -469,7 +469,7 @@ func (p *Parser) parseUpdate() (Statement, error) {
 
 // parseDelete 解析 DELETE 语句
 //
-//	`DELETE FROM <table> [WHERE <column> = <literal>]`
+//	`DELETE FROM <table> [WHERE <comparison expression>]`
 func (p *Parser) parseDelete() (Statement, error) {
 	if err := p.expectKeyword(lexer.KeywordDelete); err != nil {
 		return nil, err
@@ -484,7 +484,7 @@ func (p *Parser) parseDelete() (Statement, error) {
 		return nil, err
 	}
 
-	filter, err := p.parseWhereFilter()
+	filter, err := p.parseOptionalComparison(lexer.KeywordWhere)
 	if err != nil {
 		return nil, err
 	}
@@ -679,38 +679,6 @@ func (p *Parser) parseExpression() (Expression, error) {
 	default:
 		return Expression{}, fmt.Errorf("parser: expected expression, got %s at %s", lexer.DescribeToken(token), lexer.DescribePosition(token.Offset))
 	}
-}
-
-// parseWhereFilter 解析 WHERE column = literal
-// 目前只支持单个赋值条件
-func (p *Parser) parseWhereFilter() (*EqualityFilter, error) {
-	current := p.peek()
-	if current.Kind != lexer.KeywordKind || current.Keyword != lexer.KeywordWhere {
-		return nil, nil
-	}
-
-	if err := p.expectKeyword(lexer.KeywordWhere); err != nil {
-		return nil, err
-	}
-
-	c, err := p.expectIdentifier()
-	if err != nil {
-		return nil, err
-	}
-
-	if err := p.expect(lexer.Equal); err != nil {
-		return nil, err
-	}
-
-	v, err := p.parseExpression()
-	if err != nil {
-		return nil, err
-	}
-
-	return &EqualityFilter{
-		Column: c,
-		Value:  v,
-	}, nil
 }
 
 func (p *Parser) parseFromClause() (FromItem, error) {

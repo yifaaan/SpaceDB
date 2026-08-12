@@ -246,16 +246,6 @@ type SelectStatement struct {
 	Offset *Expression
 }
 
-// EqualityFilter 表示 WHERE 条件：
-//
-//	WHERE column = constant
-//
-// 暂时不支持 AND、OR、大于、小于...
-type EqualityFilter struct {
-	Column string
-	Value  Expression
-}
-
 // UpdateStatement 表示 UPDATE 语句
 type UpdateStatement struct {
 	TableName string
@@ -264,16 +254,17 @@ type UpdateStatement struct {
 	Assignments map[string]Expression
 
 	// Filter 为 nil 表示没有 WHERE，即更新表中全部行。
-	Filter *EqualityFilter
+	// 非 nil 时保存完整的比较表达式，例如 age > 18。
+	Filter *Expression
 }
 
 // DeleteStatement 表示 DELETE FROM 语句
 //
 // Filter 为 nil 表示删除整张表；
-// 非 nil 时只删除满足 column = literal 的行
+// 非 nil 时只删除满足比较表达式的行
 type DeleteStatement struct {
 	TableName string
-	Filter    *EqualityFilter
+	Filter    *Expression
 }
 
 type Statement interface {
