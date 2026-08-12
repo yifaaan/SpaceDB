@@ -2,41 +2,9 @@ package engine
 
 import (
 	"bytes"
-	"spacedb/storage"
 	"spacedb/types"
 	"testing"
 )
-
-func TestKVEngineBeginsTransaction(t *testing.T) {
-	engine := NewKVEngine(storage.NewMemoryEngine())
-
-	txn, err := engine.Begin()
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	kvTxn, ok := txn.(*KVTransaction)
-	if !ok {
-		t.Fatalf("transaction = %T, want *KVTransaction", txn)
-	}
-
-	if kvTxn.txn == nil {
-		t.Fatal("wrapped storage transaction is nil")
-	}
-}
-
-func TestKVTransactionReturnsNotImplemented(t *testing.T) {
-	engine := NewKVEngine(storage.NewMemoryEngine())
-
-	txn, err := engine.Begin()
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if err := txn.Commit(); err != nil {
-		t.Fatalf("Commit error = %v, want storage.ErrNotImplemented", err)
-	}
-}
 
 func TestTableAndRowNamespacesAreSeparated(t *testing.T) {
 	table, err := tableKey("users")

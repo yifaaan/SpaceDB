@@ -180,16 +180,10 @@ func Build(stmt parser.Statement) (Plan, error) {
 		return Plan{Node: CreateTableNode{Schema: table}}, nil
 
 	case parser.InsertStatement:
-		columns := stmt.Columns
-
-		if columns == nil {
-			columns = []string{}
-		}
-
 		return Plan{
 			Node: InsertNode{
 				TableName: stmt.TableName,
-				Columns:   columns,
+				Columns:   stmt.Columns,
 				Values:    stmt.Values,
 			},
 		}, nil
@@ -226,12 +220,7 @@ func Build(stmt parser.Statement) (Plan, error) {
 				return Plan{}, fmt.Errorf("planner: GROUP BY expression must be a column reference")
 			}
 
-			columnName, ok := stmt.GroupBy.Value.(string)
-			if !ok {
-				return Plan{}, fmt.Errorf("planner: GROUP BY column reference contains %T", stmt.GroupBy.Value)
-			}
-
-			groupByColumn = columnName
+			groupByColumn = stmt.GroupBy.Value.(string)
 		}
 
 		hasAggregate := false
@@ -253,10 +242,7 @@ func Build(stmt parser.Statement) (Plan, error) {
 				//      FROM users
 				//      GROUP BY department;
 				if stmt.GroupBy != nil {
-					columnName, ok := item.Expression.Value.(string)
-					if !ok {
-						return Plan{}, fmt.Errorf("planner: SELECT item %d column reference contains %T", itemIndex+1, item.Expression.Value)
-					}
+					columnName := item.Expression.Value.(string)
 
 					if columnName != groupByColumn {
 						return Plan{}, fmt.Errorf("planner: column %q must appear in GROUP BY or be used in an aggregate function", columnName)

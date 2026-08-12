@@ -17,22 +17,12 @@ type FilterExecutor struct {
 }
 
 func (f FilterExecutor) Execute(txn Transaction) (ResultSet, error) {
-	if f.Source == nil {
-		return nil, fmt.Errorf("executor: filter source is nil")
-	}
-
 	sourceResult, err := f.Source.Execute(txn)
 	if err != nil {
 		return nil, fmt.Errorf("executor: executing filter source: %w", err)
 	}
 
-	rowsResult, ok := sourceResult.(RowsResult)
-	if !ok {
-		return nil, fmt.Errorf(
-			"executor: filter source returned %T, want RowsResult",
-			sourceResult,
-		)
-	}
+	rowsResult := sourceResult.(RowsResult)
 
 	rows := make([]types.Row, 0, len(rowsResult.Rows))
 	for rowIndex, row := range rowsResult.Rows {
@@ -51,20 +41,9 @@ func (f FilterExecutor) Execute(txn Transaction) (ResultSet, error) {
 			)
 		}
 
-		switch value.Kind {
-		case types.ValueNull:
-			// UNKNOWN 不满足 WHERE/HAVING。
-			continue
-		case types.ValueBoolean:
-			if value.Boolean {
-				rows = append(rows, row)
-			}
-		default:
-			return nil, fmt.Errorf(
-				"executor: filter predicate returned value kind %d at row %d, want boolean or NULL",
-				value.Kind,
-				rowIndex+1,
-			)
+		// UNKNOWN 不满足 WHERE/HAVING。
+		if value.Kind == types.ValueBoolean && value.Boolean {
+			rows = append(rows, row)
 		}
 	}
 

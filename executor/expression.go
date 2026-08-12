@@ -25,53 +25,23 @@ func evaluateExpression(
 		return types.Value{Kind: types.ValueNull}, nil
 
 	case parser.BooleanLiteral:
-		value, ok := expression.Value.(bool)
-		if !ok {
-			return types.Value{}, fmt.Errorf(
-				"executor: boolean expression contains %T",
-				expression.Value,
-			)
-		}
+		value := expression.Value.(bool)
 		return types.Value{Kind: types.ValueBoolean, Boolean: value}, nil
 
 	case parser.IntegerLiteral:
-		value, ok := expression.Value.(int64)
-		if !ok {
-			return types.Value{}, fmt.Errorf(
-				"executor: integer expression contains %T",
-				expression.Value,
-			)
-		}
+		value := expression.Value.(int64)
 		return types.Value{Kind: types.ValueInteger, Integer: value}, nil
 
 	case parser.FloatLiteral:
-		value, ok := expression.Value.(float64)
-		if !ok {
-			return types.Value{}, fmt.Errorf(
-				"executor: float expression contains %T",
-				expression.Value,
-			)
-		}
+		value := expression.Value.(float64)
 		return types.Value{Kind: types.ValueFloat, Float: value}, nil
 
 	case parser.StringLiteral:
-		value, ok := expression.Value.(string)
-		if !ok {
-			return types.Value{}, fmt.Errorf(
-				"executor: string expression contains %T",
-				expression.Value,
-			)
-		}
+		value := expression.Value.(string)
 		return types.Value{Kind: types.ValueString, String: value}, nil
 
 	case parser.ColumnReference:
-		columnName, ok := expression.Value.(string)
-		if !ok {
-			return types.Value{}, fmt.Errorf(
-				"executor: column reference contains %T",
-				expression.Value,
-			)
-		}
+		columnName := expression.Value.(string)
 
 		columnIndex := slices.Index(leftColumns, columnName)
 		if columnIndex < 0 {
@@ -80,23 +50,10 @@ func evaluateExpression(
 				columnName,
 			)
 		}
-		if columnIndex >= len(leftRow) {
-			return types.Value{}, fmt.Errorf(
-				"executor: row does not contain column %q at index %d",
-				columnName,
-				columnIndex,
-			)
-		}
 		return leftRow[columnIndex], nil
 
 	case parser.OperationExpression:
-		operation, ok := expression.Value.(parser.Operation)
-		if !ok {
-			return types.Value{}, fmt.Errorf(
-				"executor: operation expression contains %T",
-				expression.Value,
-			)
-		}
+		operation := expression.Value.(parser.Operation)
 
 		left, err := evaluateExpression(
 			operation.Left,

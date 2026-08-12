@@ -16,39 +16,19 @@ func ValueFromExpression(expression parser.Expression) (types.Value, error) {
 		return types.Value{Kind: types.ValueNull}, nil
 
 	case parser.BooleanLiteral:
-		v, ok := expression.Value.(bool)
-		if !ok {
-			return types.Value{}, fmt.Errorf(
-				"planner: boolean expression contains %T", expression.Value,
-			)
-		}
+		v := expression.Value.(bool)
 		return types.Value{Kind: types.ValueBoolean, Boolean: v}, nil
 
 	case parser.IntegerLiteral:
-		v, ok := expression.Value.(int64)
-		if !ok {
-			return types.Value{}, fmt.Errorf(
-				"planner: integer expression contains %T", expression.Value,
-			)
-		}
+		v := expression.Value.(int64)
 		return types.Value{Kind: types.ValueInteger, Integer: v}, nil
 
 	case parser.FloatLiteral:
-		v, ok := expression.Value.(float64)
-		if !ok {
-			return types.Value{}, fmt.Errorf(
-				"planner: float expression contains %T", expression.Value,
-			)
-		}
+		v := expression.Value.(float64)
 		return types.Value{Kind: types.ValueFloat, Float: v}, nil
 
 	case parser.StringLiteral:
-		v, ok := expression.Value.(string)
-		if !ok {
-			return types.Value{}, fmt.Errorf(
-				"planner: string expression contains %T", expression.Value,
-			)
-		}
+		v := expression.Value.(string)
 		return types.Value{Kind: types.ValueString, String: v}, nil
 
 	default:

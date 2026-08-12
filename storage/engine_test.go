@@ -161,6 +161,21 @@ func testScanPrefix(t *testing.T, engine Engine) {
 	}
 }
 
+func testScanPrefixReverse(t *testing.T, engine Engine) {
+	t.Helper()
+
+	for _, key := range []string{"camhue", "canehe", "cbtest", "aanehe"} {
+		if err := engine.Set([]byte(key), []byte("value")); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	entries := collectEntries(t, engine.ScanPrefixReverse([]byte("ca")))
+	if want := []string{"canehe", "camhue"}; !slices.Equal(entryKeys(entries), want) {
+		t.Fatalf("reverse prefix keys = %v, want %v", entryKeys(entries), want)
+	}
+}
+
 // TestEngine 用同一套断言验证所有引擎实现
 func TestEngine(t *testing.T) {
 	for _, name := range []string{"memory", "disk"} {
@@ -172,6 +187,9 @@ func TestEngine(t *testing.T) {
 		})
 		t.Run(name+"/scan-prefix", func(t *testing.T) {
 			testScanPrefix(t, newTestEngine(t, name))
+		})
+		t.Run(name+"/scan-prefix-reverse", func(t *testing.T) {
+			testScanPrefixReverse(t, newTestEngine(t, name))
 		})
 	}
 }

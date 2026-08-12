@@ -5,13 +5,6 @@ import (
 	"spacedb/types"
 )
 
-// RowFilter 是 Executor 传给 Engine 的运行时等值过滤条件。
-// Parser 表达式应在 Executor 中转换成 Value，Engine 不依赖 Parser AST。
-type RowFilter struct {
-	Column string
-	Value  types.Value
-}
-
 // Transaction 描述 SQL 执行器需要的最小事务能力
 type Transaction interface {
 	Commit() error
@@ -27,8 +20,8 @@ type Transaction interface {
 	// DeleteRow 删除指定主键对应的行
 	DeleteRow(table *schema.Table, primaryKey types.Value) error
 
-	// ScanTable 返回指定表当前可见且满足可选过滤条件的行
-	ScanTable(tableName string, filter *RowFilter) ([]types.Row, error)
+	// ScanTable 返回指定表当前可见的行
+	ScanTable(table *schema.Table) ([]types.Row, error)
 
 	// CreateTable 创建表结构
 	CreateTable(table schema.Table) error

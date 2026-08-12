@@ -79,10 +79,6 @@ func (m *MVCC) Begin() (*MVCCTransaction, error) {
 		if err != nil {
 			return nil, err
 		}
-		if key.kind != mvccKeyTxnActive {
-			return nil, fmt.Errorf("storage: unexpected MVCC key kind %d", key.kind)
-		}
-
 		activeVersions[key.version] = struct{}{}
 	}
 
@@ -123,14 +119,9 @@ func (t *MVCCTransaction) Commit() error {
 		if err != nil {
 			return fmt.Errorf("storage: scanning transaction %d writes: %w", t.state.version, err)
 		}
-		decoded, err := decodeMvccKey(entry.Key)
-		if err != nil {
+		if _, err := decodeMvccKey(entry.Key); err != nil {
 			return err
 		}
-		if decoded.kind != mvccKeyTxnWrite || decoded.version != t.state.version {
-			return fmt.Errorf("storage: unexpected transaction-write key %x", entry.Key)
-		}
-
 		writeKeys = append(writeKeys, bytes.Clone(entry.Key))
 	}
 	for _, key := range writeKeys {
@@ -162,10 +153,6 @@ func (t *MVCCTransaction) Rollback() error {
 		if err != nil {
 			return err
 		}
-		if decoded.kind != mvccKeyTxnWrite || decoded.version != t.state.version {
-			return fmt.Errorf("storage: unexpected transaction-write key %x", entry.Key)
-		}
-
 		allKeys = append(allKeys, bytes.Clone(entry.Key))
 		allKeys = append(allKeys, versionedKey(decoded.rawKey, decoded.version).encode())
 	}

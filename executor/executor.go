@@ -127,9 +127,9 @@ func (s ScanExecutor) Execute(txn Transaction) (ResultSet, error) {
 		return nil, fmt.Errorf("executor: table %q does not exist", s.TableName)
 	}
 
-	// 条件由上层 FilterExecutor 执行；ScanTable 这里传 nil，
-	// 让 UPDATE/DELETE 和 SELECT 获得完全相同的原始行集合。
-	rows, err := txn.ScanTable(s.TableName, nil)
+	// 条件由上层 FilterExecutor 执行，让 UPDATE/DELETE 和 SELECT
+	// 获得完全相同的原始行集合。
+	rows, err := txn.ScanTable(table)
 	if err != nil {
 		return nil, fmt.Errorf("executor: scanning table %q: %w", s.TableName, err)
 	}
@@ -159,10 +159,7 @@ func (o OrderExecutor) Execute(txn Transaction) (ResultSet, error) {
 		return nil, fmt.Errorf("executor: executing ORDER BY source: %w", err)
 	}
 
-	rowsResult, ok := sourceResult.(RowsResult)
-	if !ok {
-		return nil, fmt.Errorf("executor: ORDER BY source returned %T, want RowsResult", sourceResult)
-	}
+	rowsResult := sourceResult.(RowsResult)
 
 	// 将 ORDER BY item的列名转成 idx
 	columnIdxs := make([]int, len(o.OrderBy))
@@ -225,10 +222,7 @@ func (o OffsetExecutor) Execute(txn Transaction) (ResultSet, error) {
 		return nil, fmt.Errorf("executor: executing OFFSET source: %w", err)
 	}
 
-	rowsResult, ok := sourceResult.(RowsResult)
-	if !ok {
-		return nil, fmt.Errorf("executor: OFFSET source returned %T, want RowsResult", sourceResult)
-	}
+	rowsResult := sourceResult.(RowsResult)
 
 	start := o.Offset
 	if start > len(rowsResult.Rows) {
@@ -252,10 +246,7 @@ func (l LimitExecutor) Execute(txn Transaction) (ResultSet, error) {
 		return nil, fmt.Errorf("executor: executing LIMIT source: %w", err)
 	}
 
-	rowsResult, ok := sourceResult.(RowsResult)
-	if !ok {
-		return nil, fmt.Errorf("executor: LIMIT source returned %T, want RowsResult", sourceResult)
-	}
+	rowsResult := sourceResult.(RowsResult)
 
 	// LIMIT 大于结果总数时，返回全部结果
 	end := l.Limit
@@ -280,10 +271,7 @@ func (p ProjectionExecutor) Execute(txn Transaction) (ResultSet, error) {
 		return nil, fmt.Errorf("executor: executing projection source: %w", err)
 	}
 
-	rowsResult, ok := sourceResult.(RowsResult)
-	if !ok {
-		return nil, fmt.Errorf("executor: projection source returned %T, want RowsResult", sourceResult)
-	}
+	rowsResult := sourceResult.(RowsResult)
 
 	// 每个投影项提前解析一次。
 	//
@@ -302,10 +290,7 @@ func (p ProjectionExecutor) Execute(txn Transaction) (ResultSet, error) {
 		}
 
 		if item.Expression.Kind == parser.ColumnReference {
-			columnName, ok := item.Expression.Value.(string)
-			if !ok {
-				return nil, fmt.Errorf("executor: column reference contains %T", item.Expression.Value)
-			}
+			columnName := item.Expression.Value.(string)
 
 			columnIndex := slices.Index(rowsResult.Columns, columnName)
 			if columnIndex < 0 {
@@ -353,18 +338,13 @@ func (p ProjectionExecutor) Execute(txn Transaction) (ResultSet, error) {
 	}
 
 	rows := make([]types.Row, 0, len(rowsResult.Rows))
-	for rowIndex, sourceRow := range rowsResult.Rows {
+	for _, sourceRow := range rowsResult.Rows {
 		projectedRow := make(types.Row, 0, len(items))
 
 		for _, item := range items {
 			if item.columnIndex == -1 {
 				projectedRow = append(projectedRow, item.constant)
 				continue
-			}
-
-			if item.columnIndex >= len(sourceRow) {
-				return nil, fmt.Errorf(
-					"executor: row %d does not contain projected column index %d", rowIndex+1, item.columnIndex)
 			}
 
 			projectedRow = append(
@@ -422,18 +402,11 @@ func (u UpdateExecutor) Execute(txn Transaction) (ResultSet, error) {
 		})
 	}
 
-	if u.Source == nil {
-		return nil, fmt.Errorf("executor: UPDATE source is nil")
-	}
-
 	sourceResult, err := u.Source.Execute(txn)
 	if err != nil {
 		return nil, err
 	}
-	rowsResult, ok := sourceResult.(RowsResult)
-	if !ok {
-		return nil, fmt.Errorf("executor: UPDATE source returned %T, want RowsResult", sourceResult)
-	}
+	rowsResult := sourceResult.(RowsResult)
 
 	updated := 0
 	for rowIndex, row := range rowsResult.Rows {
@@ -479,10 +452,7 @@ func (d DeleteExecutor) Execute(txn Transaction) (ResultSet, error) {
 		return nil, err
 	}
 
-	rowsResult, ok := sourceResult.(RowsResult)
-	if !ok {
-		return nil, fmt.Errorf("executor: DELETE source returned %T, want RowsResult", sourceResult)
-	}
+	rowsResult := sourceResult.(RowsResult)
 
 	deleted := 0
 

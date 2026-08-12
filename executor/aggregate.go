@@ -34,29 +34,19 @@ type AggregateExecutor struct {
 }
 
 func (a AggregateExecutor) Execute(txn Transaction) (ResultSet, error) {
-	if a.Source == nil {
-		return nil, fmt.Errorf("executor: aggregate source is nil")
-	}
-
 	sourceResult, err := a.Source.Execute(txn)
 	if err != nil {
 		return nil, fmt.Errorf("executor: executing aggregate source: %w", err)
 	}
 
-	rowsResult, ok := sourceResult.(RowsResult)
-	if !ok {
-		return nil, fmt.Errorf("executor: aggregate source returned %T, want RowsResult", sourceResult)
-	}
+	rowsResult := sourceResult.(RowsResult)
 
-	outputColumns, err := aggregateOutputColumns(a.Items)
-	if err != nil {
-		return nil, err
-	}
+	outputColumns := aggregateOutputColumns(a.Items)
 
 	if a.GroupBy == nil {
 		// 没有 GROUP BY 时，全部输入行属于同一个隐式分组。即使输入为空，
 		// 也必须计算一次，使 COUNT 返回 0，MIN/MAX/SUM/AVG 返回 NULL。
-		outputRow, err := a.calculateRow(nil, "", rowsResult.Columns, rowsResult.Rows)
+		outputRow, err := a.calculateRow(nil, rowsResult.Columns, rowsResult.Rows)
 		if err != nil {
 			return nil, err
 		}
@@ -67,7 +57,7 @@ func (a AggregateExecutor) Execute(txn Transaction) (ResultSet, error) {
 		}, nil
 	}
 
-	groupColumn, groupColumnIndex, err := resolveGroupBy(*a.GroupBy, rowsResult.Columns)
+	groupColumnIndex, err := resolveGroupBy(*a.GroupBy, rowsResult.Columns)
 	if err != nil {
 		return nil, err
 	}
@@ -82,16 +72,7 @@ func (a AggregateExecutor) Execute(txn Transaction) (ResultSet, error) {
 	groups := make([]rowGroup, 0)
 	groupIndexes := make(map[types.Value]int)
 
-	for rowIndex, row := range rowsResult.Rows {
-		if groupColumnIndex >= len(row) {
-			return nil, fmt.Errorf(
-				"executor: row %d does not contain GROUP BY column %q at index %d",
-				rowIndex+1,
-				groupColumn,
-				groupColumnIndex,
-			)
-		}
-
+	for _, row := range rowsResult.Rows {
 		key := row[groupColumnIndex]
 		if groupIndex, ok := groupIndexes[key]; ok {
 			groups[groupIndex].rows = append(groups[groupIndex].rows, row)
@@ -110,7 +91,6 @@ func (a AggregateExecutor) Execute(txn Transaction) (ResultSet, error) {
 		group := &groups[groupIndex]
 		outputRow, err := a.calculateRow(
 			&group.key,
-			groupColumn,
 			rowsResult.Columns,
 			group.rows,
 		)
@@ -132,41 +112,17 @@ func (a AggregateExecutor) Execute(txn Transaction) (ResultSet, error) {
 
 // aggregateOutputColumns 按 SELECT 项提前确定结果列名。列名只与表达式和
 // 别名有关，不需要在每个分组中重复计算。
-func aggregateOutputColumns(items []parser.SelectItem) ([]string, error) {
+func aggregateOutputColumns(items []parser.SelectItem) []string {
 	columns := make([]string, 0, len(items))
 
-	for itemIndex, item := range items {
+	for _, item := range items {
 		var outputName string
 
-		switch item.Expression.Kind {
-		case parser.FunctionExpression:
-			call, ok := item.Expression.Value.(parser.FunctionCall)
-			if !ok {
-				return nil, fmt.Errorf(
-					"executor: aggregate item %d contains %T, want parser.FunctionCall",
-					itemIndex+1,
-					item.Expression.Value,
-				)
-			}
+		if item.Expression.Kind == parser.FunctionExpression {
+			call := item.Expression.Value.(parser.FunctionCall)
 			outputName = call.Name
-
-		case parser.ColumnReference:
-			columnName, ok := item.Expression.Value.(string)
-			if !ok {
-				return nil, fmt.Errorf(
-					"executor: aggregate item %d column reference contains %T",
-					itemIndex+1,
-					item.Expression.Value,
-				)
-			}
-			outputName = columnName
-
-		default:
-			return nil, fmt.Errorf(
-				"executor: aggregate item %d has unsupported expression kind %d",
-				itemIndex+1,
-				item.Expression.Kind,
-			)
+		} else {
+			outputName = item.Expression.Value.(string)
 		}
 
 		if item.Alias != nil {
@@ -175,55 +131,36 @@ func aggregateOutputColumns(items []parser.SelectItem) ([]string, error) {
 		columns = append(columns, outputName)
 	}
 
-	return columns, nil
+	return columns
 }
 
-// resolveGroupBy 验证分组表达式并把分组列名解析成输入行下标。
-func resolveGroupBy(expression parser.Expression, columns []string) (string, int, error) {
-	if expression.Kind != parser.ColumnReference {
-		return "", 0, fmt.Errorf("executor: GROUP BY expression must be a column reference")
-	}
-
-	columnName, ok := expression.Value.(string)
-	if !ok {
-		return "", 0, fmt.Errorf(
-			"executor: GROUP BY column reference contains %T",
-			expression.Value,
-		)
-	}
+// resolveGroupBy 把分组列名解析成输入行下标。
+func resolveGroupBy(expression parser.Expression, columns []string) (int, error) {
+	columnName := expression.Value.(string)
 
 	columnIndex := slices.Index(columns, columnName)
 	if columnIndex < 0 {
-		return "", 0, fmt.Errorf(
+		return 0, fmt.Errorf(
 			"executor: GROUP BY column %q does not exist",
 			columnName,
 		)
 	}
 
-	return columnName, columnIndex, nil
+	return columnIndex, nil
 }
 
 // calculateRow 计算一个分组对应的结果行。函数表达式在组内聚合；普通列
 // 只能引用 GROUP BY 列，因此每组只需输出一次 groupValue。
 func (a AggregateExecutor) calculateRow(
 	groupValue *types.Value,
-	groupColumn string,
 	columns []string,
 	rows []types.Row,
 ) (types.Row, error) {
 	outputRow := make(types.Row, 0, len(a.Items))
 
-	for itemIndex, item := range a.Items {
-		switch item.Expression.Kind {
-		case parser.FunctionExpression:
-			call, ok := item.Expression.Value.(parser.FunctionCall)
-			if !ok {
-				return nil, fmt.Errorf(
-					"aggregate item %d contains %T, want parser.FunctionCall",
-					itemIndex+1,
-					item.Expression.Value,
-				)
-			}
+	for _, item := range a.Items {
+		if item.Expression.Kind == parser.FunctionExpression {
+			call := item.Expression.Value.(parser.FunctionCall)
 
 			calculator, err := buildAggregateCalculator(call.Name)
 			if err != nil {
@@ -235,38 +172,8 @@ func (a AggregateExecutor) calculateRow(
 				return nil, fmt.Errorf("calculating %s(%s): %w", call.Name, call.Argument, err)
 			}
 			outputRow = append(outputRow, value)
-
-		case parser.ColumnReference:
-			if groupValue == nil {
-				return nil, fmt.Errorf(
-					"aggregate item %d is a column reference without GROUP BY",
-					itemIndex+1,
-				)
-			}
-
-			columnName, ok := item.Expression.Value.(string)
-			if !ok {
-				return nil, fmt.Errorf(
-					"aggregate item %d column reference contains %T",
-					itemIndex+1,
-					item.Expression.Value,
-				)
-			}
-			if columnName != groupColumn {
-				return nil, fmt.Errorf(
-					"column %q must appear in GROUP BY or be used in an aggregate function",
-					columnName,
-				)
-			}
-
+		} else {
 			outputRow = append(outputRow, *groupValue)
-
-		default:
-			return nil, fmt.Errorf(
-				"aggregate item %d has unsupported expression kind %d",
-				itemIndex+1,
-				item.Expression.Kind,
-			)
 		}
 	}
 
@@ -317,10 +224,7 @@ func (countCalculator) calculate(columnName string, columns []string, rows []typ
 	}
 
 	var count int64
-	for i, row := range rows {
-		if columnIdx >= len(row) {
-			return types.Value{}, fmt.Errorf("row %d does not contain column %q at index %d", i+1, columnName, columnIdx)
-		}
+	for _, row := range rows {
 		if row[columnIdx].Kind != types.ValueNull {
 			count++
 		}
@@ -355,10 +259,6 @@ func calculateExtreme(columnName string, columns []string, rows []types.Row, min
 	found := false
 
 	for rowIndex, row := range rows {
-		if columnIndex >= len(row) {
-			return types.Value{}, fmt.Errorf("row %d does not contain column %q at index %d", rowIndex+1, columnName, columnIndex)
-		}
-
 		current := row[columnIndex]
 
 		if current.Kind == types.ValueNull {
@@ -405,10 +305,6 @@ func (sumCalculator) calculate(columnName string, columns []string, rows []types
 	found := false
 
 	for rowIndex, row := range rows {
-		if columnIndex >= len(row) {
-			return types.Value{}, fmt.Errorf("row %d does not contain column %q at index %d", rowIndex+1, columnName, columnIndex)
-		}
-
 		value := row[columnIndex]
 
 		switch value.Kind {
@@ -456,17 +352,6 @@ func (avgCalculator) calculate(columnName string, columns []string, rows []types
 	}
 
 	if sumValue.Kind == types.ValueNull {
-		return types.Value{Kind: types.ValueNull}, nil
-	}
-	if sumValue.Kind != types.ValueFloat {
-		return types.Value{}, fmt.Errorf("AVG sum returned value kind %d, want float", sumValue.Kind)
-	}
-
-	if countValue.Kind != types.ValueInteger {
-		return types.Value{}, fmt.Errorf("AVG count returned value kind %d, want integer", countValue.Kind)
-	}
-
-	if countValue.Integer == 0 {
 		return types.Value{Kind: types.ValueNull}, nil
 	}
 

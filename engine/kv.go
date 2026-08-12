@@ -77,10 +77,6 @@ func (t *KVTransaction) Rollback() error {
 // validateRow 检查一行数据是否符合表结构。
 // CreateRow 和 UpdateRow 都需要执行相同校验。
 func validateRow(table *schema.Table, row types.Row) error {
-	if len(row) == 0 {
-		return fmt.Errorf("engine: cannot store an empty row")
-	}
-
 	if len(row) != len(table.Columns) {
 		return fmt.Errorf("engine: row length mismatch: got %d, columns %d", len(row), len(table.Columns))
 	}
@@ -203,31 +199,15 @@ func (t *KVTransaction) DeleteRow(table *schema.Table, primaryKey types.Value) e
 	return nil
 }
 
-func (t *KVTransaction) ScanTable(tableName string, filter *executor.RowFilter) ([]types.Row, error) {
-	table, err := t.GetTable(tableName)
-	if err != nil {
-		return nil, fmt.Errorf("engine: loading table %q: %w", tableName, err)
-	}
-	if table == nil {
-		return nil, fmt.Errorf("engine: table %q does not exist", tableName)
-	}
-
-	filterColumn := 0
-	if filter != nil {
-		filterColumn, err = table.ColumnIndex(filter.Column)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	prefix, err := rowPrefixKey(tableName)
+func (t *KVTransaction) ScanTable(table *schema.Table) ([]types.Row, error) {
+	prefix, err := rowPrefixKey(table.Name)
 	if err != nil {
 		return nil, err
 	}
 
 	entries, err := t.txn.ScanPrefix(prefix)
 	if err != nil {
-		return nil, fmt.Errorf("engine: scanning rows for table %q: %w", tableName, err)
+		return nil, fmt.Errorf("engine: scanning rows for table %q: %w", table.Name, err)
 	}
 
 	rows := make([]types.Row, 0, len(entries))
@@ -236,13 +216,10 @@ func (t *KVTransaction) ScanTable(tableName string, filter *executor.RowFilter) 
 	for i, e := range entries {
 		var row types.Row
 		if err := json.Unmarshal(e.Value, &row); err != nil {
-			return nil, fmt.Errorf("engine: decoding row %d from table %q: %w", i+1, tableName, err)
+			return nil, fmt.Errorf("engine: decoding row %d from table %q: %w", i+1, table.Name, err)
 		}
 		if len(row) != len(table.Columns) {
 			return nil, fmt.Errorf("engine: stored row %d has %d values, want %d", i+1, len(row), len(table.Columns))
-		}
-		if filter != nil && row[filterColumn] != filter.Value {
-			continue
 		}
 		rows = append(rows, row)
 	}

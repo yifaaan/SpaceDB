@@ -25,18 +25,12 @@ func (j NestedLoopJoinExecutor) Execute(txn Transaction) (ResultSet, error) {
 	if err != nil {
 		return nil, fmt.Errorf("executor: executing left join input: %w", err)
 	}
-	leftRows, ok := leftResult.(RowsResult)
-	if !ok {
-		return nil, fmt.Errorf("executor: left join input returned %T, want RowsResult", leftResult)
-	}
+	leftRows := leftResult.(RowsResult)
 	rightResult, err := j.Right.Execute(txn)
 	if err != nil {
 		return nil, fmt.Errorf("executor: executing right join input: %w", err)
 	}
-	rightRows, ok := rightResult.(RowsResult)
-	if !ok {
-		return nil, fmt.Errorf("executor: right join input returned %T, want RowsResult", rightResult)
-	}
+	rightRows := rightResult.(RowsResult)
 
 	columns := slices.Concat(leftRows.Columns, rightRows.Columns)
 	rows := make([]types.Row, 0, len(leftRows.Rows)*len(rightRows.Rows))
@@ -56,17 +50,7 @@ func (j NestedLoopJoinExecutor) Execute(txn Transaction) (ResultSet, error) {
 					return nil, fmt.Errorf("executor: evaluating JOIN predicate: %w", err)
 				}
 
-				switch value.Kind {
-				case types.ValueNull:
-					isMatch = false
-				case types.ValueBoolean:
-					isMatch = value.Boolean
-				default:
-					return nil, fmt.Errorf(
-						"executor: JOIN predicate returned value kind %d, want boolean or NULL",
-						value.Kind,
-					)
-				}
+				isMatch = value.Kind == types.ValueBoolean && value.Boolean
 			}
 			if !isMatch {
 				continue

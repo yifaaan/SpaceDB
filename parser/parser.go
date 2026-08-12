@@ -144,10 +144,7 @@ func (p *Parser) parseSelect() (Statement, error) {
 			if p.peek().Kind != lexer.Comma {
 				break
 			}
-
-			if err := p.expect(lexer.Comma); err != nil {
-				return nil, err
-			}
+			_ = p.next()
 		}
 	}
 
@@ -233,9 +230,7 @@ func (p *Parser) parseSelect() (Statement, error) {
 			if p.peek().Kind != lexer.Comma {
 				break
 			}
-			if err := p.expect(lexer.Comma); err != nil {
-				return nil, err
-			}
+			_ = p.next()
 		}
 	}
 
@@ -309,9 +304,7 @@ func (p *Parser) parseCreateTable() (Statement, error) {
 		if p.peek().Kind != lexer.Comma {
 			break
 		}
-		if err := p.expect(lexer.Comma); err != nil {
-			return nil, err
-		}
+		_ = p.next()
 	}
 	if err := p.expect(lexer.CloseParen); err != nil {
 		return nil, err
@@ -340,9 +333,7 @@ func (p *Parser) parseInsert() (Statement, error) {
 	// 可选的显式列列表：insert into t (a, b) values ...
 	var columns []string
 	if p.peek().Kind == lexer.OpenParen {
-		if err := p.expect(lexer.OpenParen); err != nil {
-			return nil, err
-		}
+		_ = p.next()
 		first, err := p.expectIdentifier()
 		if err != nil {
 			return nil, err
@@ -394,9 +385,7 @@ func (p *Parser) parseInsert() (Statement, error) {
 		if p.peek().Kind != lexer.Comma {
 			break
 		}
-		if err := p.expect(lexer.Comma); err != nil {
-			return nil, err
-		}
+		_ = p.next()
 	}
 	return InsertStatement{TableName: tableName, Columns: columns, Values: values}, nil
 }
@@ -449,9 +438,7 @@ func (p *Parser) parseUpdate() (Statement, error) {
 		if p.peek().Kind != lexer.Comma {
 			break
 		}
-		if err := p.expect(lexer.Comma); err != nil {
-			return nil, err
-		}
+		_ = p.next()
 	}
 
 	// WHERE
@@ -559,9 +546,7 @@ func (p *Parser) parseOptionalComparison(keyword lexer.Keyword) (*Expression, er
 		return nil, nil
 	}
 
-	if err := p.expectKeyword(keyword); err != nil {
-		return nil, err
-	}
+	_ = p.next()
 
 	expression, err := p.parseComparisonExpression()
 	if err != nil {
@@ -614,10 +599,7 @@ func (p *Parser) parseExpression() (Expression, error) {
 	token := p.next()
 	switch token.Kind {
 	case lexer.Identifier:
-		name, ok := token.Value.(string)
-		if !ok {
-			return Expression{}, fmt.Errorf("parser: invalid identifier payload at %s", lexer.DescribePosition(token.Offset))
-		}
+		name := token.Value.(string)
 
 		// 标识符后没有左括号，表示普通列引用
 		// SELECT score FROM users
@@ -630,9 +612,7 @@ func (p *Parser) parseExpression() (Expression, error) {
 
 		// 标识符跟左括号，表示函数调用
 		// SELECT count(score) FROM users
-		if err := p.expect(lexer.OpenParen); err != nil {
-			return Expression{}, err
-		}
+		_ = p.next()
 
 		argument, err := p.expectIdentifier()
 		if err != nil {
@@ -655,14 +635,10 @@ func (p *Parser) parseExpression() (Expression, error) {
 		return Expression{Kind: StringLiteral, Value: token.Value.(string)}, nil
 
 	case lexer.Number:
-		switch value := token.Value.(type) {
-		case int64:
+		if value, ok := token.Value.(int64); ok {
 			return Expression{Kind: IntegerLiteral, Value: value}, nil
-		case float64:
-			return Expression{Kind: FloatLiteral, Value: value}, nil
-		default:
-			return Expression{}, fmt.Errorf("parser: invalid number payload at %s", lexer.DescribePosition(token.Offset))
 		}
+		return Expression{Kind: FloatLiteral, Value: token.Value.(float64)}, nil
 
 	case lexer.KeywordKind:
 		switch token.Keyword {
