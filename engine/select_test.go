@@ -50,7 +50,7 @@ func TestTestSessionSelectAll(t *testing.T) {
 
 	first := rows.Rows[0]
 	if first[0].Integer != 1 ||
-		first[1].String != "guest" ||
+		first[1].Str != "guest" ||
 		first[2].Kind != types.ValueBoolean ||
 		!first[2].Boolean {
 		t.Fatalf("first row = %#v", first)
@@ -58,7 +58,7 @@ func TestTestSessionSelectAll(t *testing.T) {
 
 	second := rows.Rows[1]
 	if second[0].Integer != 2 ||
-		second[1].String != "alice" {
+		second[1].Str != "alice" {
 		t.Fatalf("second row = %#v", second)
 	}
 }
@@ -112,7 +112,7 @@ func TestSessionSelectProjection(t *testing.T) {
 		t.Fatalf("row count = %d, want 2", len(rows.Rows))
 	}
 
-	if rows.Rows[0][0].String != "bob" || rows.Rows[0][1].Integer != 2 || rows.Rows[0][2].Integer != 100 {
+	if rows.Rows[0][0].Str != "bob" || rows.Rows[0][1].Integer != 2 || rows.Rows[0][2].Integer != 100 {
 		t.Fatalf("first row = %#v", rows.Rows[0])
 	}
 }
@@ -412,10 +412,10 @@ func TestSessionMinMaxAggregate(t *testing.T) {
 	if values[1].Kind != types.ValueFloat || values[1].Float != 10.75 {
 		t.Fatalf("max(score) = %#v, want float 10.75", values[1])
 	}
-	if values[2].Kind != types.ValueString || values[2].String != "alpha" {
+	if values[2].Kind != types.ValueString || values[2].Str != "alpha" {
 		t.Fatalf("min(label) = %#v, want alpha", values[2])
 	}
-	if values[3].Kind != types.ValueString || values[3].String != "gamma" {
+	if values[3].Kind != types.ValueString || values[3].Str != "gamma" {
 		t.Fatalf("max(label) = %#v, want gamma", values[3])
 	}
 
@@ -696,7 +696,7 @@ func TestSessionGroupBy(t *testing.T) {
 		}
 
 		if row[0].Kind != expected.labelKind ||
-			row[0].String != expected.label ||
+			row[0].Str != expected.label ||
 			row[1].Kind != types.ValueFloat ||
 			row[1].Float != expected.min ||
 			row[2].Kind != types.ValueInteger ||
@@ -726,9 +726,9 @@ func TestSessionGroupBy(t *testing.T) {
 		)
 	}
 	if distinctRows.Rows[0][0].Kind != types.ValueNull ||
-		distinctRows.Rows[1][0].String != "aa" ||
-		distinctRows.Rows[2][0].String != "bb" ||
-		distinctRows.Rows[3][0].String != "dd" {
+		distinctRows.Rows[1][0].Str != "aa" ||
+		distinctRows.Rows[2][0].Str != "bb" ||
+		distinctRows.Rows[3][0].Str != "dd" {
 		t.Fatalf("distinct group rows = %#v", distinctRows.Rows)
 	}
 
@@ -849,8 +849,8 @@ func TestSessionWhereAndHavingFilters(t *testing.T) {
 	}
 
 	// ORDER BY sum: dd=1.4、aa=3.1、NULL=4.6；bb=11.1 被 HAVING 丢弃。
-	if rows.Rows[0][0].String != "dd" || rows.Rows[0][1].Float != 1.4 ||
-		rows.Rows[1][0].String != "aa" || rows.Rows[1][1].Float != 3.1 ||
+	if rows.Rows[0][0].Str != "dd" || rows.Rows[0][1].Float != 1.4 ||
+		rows.Rows[1][0].Str != "aa" || rows.Rows[1][1].Float != 3.1 ||
 		rows.Rows[2][0].Kind != types.ValueNull || rows.Rows[2][1].Float != 4.6 {
 		t.Fatalf("HAVING rows = %#v", rows.Rows)
 	}

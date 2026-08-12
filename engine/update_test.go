@@ -72,12 +72,12 @@ func TestSessionUpdate(t *testing.T) {
 	}
 
 	first := rowsByID[1]
-	if first == nil || first[1].String != "anna" || first[2].Integer != 11 {
+	if first == nil || first[1].Str != "anna" || first[2].Integer != 11 {
 		t.Fatalf("updated row 1 = %#v", first)
 	}
 
 	second := rowsByID[2]
-	if second == nil || second[1].String != "bob" {
+	if second == nil || second[1].Str != "bob" {
 		t.Fatalf("unchanged row 2 = %#v", second)
 	}
 
@@ -86,7 +86,7 @@ func TestSessionUpdate(t *testing.T) {
 	}
 
 	moved := rowsByID[33]
-	if moved == nil || moved[1].String != "carol" {
+	if moved == nil || moved[1].Str != "carol" {
 		t.Fatalf("moved row 33 = %#v", moved)
 	}
 }

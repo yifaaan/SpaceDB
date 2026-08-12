@@ -67,7 +67,7 @@ func TestSessionDelete(t *testing.T) {
 	}
 
 	remaining := rowsResult.Rows[0]
-	if remaining[0].Integer != 1 || remaining[1].String != "alice" {
+	if remaining[0].Integer != 1 || remaining[1].Str != "alice" {
 		t.Fatalf("remaining row = %#v", remaining)
 	}
 }
